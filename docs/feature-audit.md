@@ -31,16 +31,15 @@
 
 | # | 功能 | 实现位置 | 说明 |
 |---|------|---------|------|
-| 1 | **实时录音** | recorder.js + recordings.py + sensevoice_background.py | 三种模式：浏览器 WebSocket / 原生 AVAudioEngine / ffmpeg 管道 |
-| 2 | **实时 ASR** | sensevoice_core.py | FunASR SenseVoiceSmall + FSMN-VAD，四层文本状态模型 |
-| 3 | **文件上传转录** | files.py + sensevoice_background.py | 后台线程 VAD+ASR+说话人分离+LLM优化 |
-| 4 | **历史记录 CRUD** | history.py + sensevoice_db.py | SQLite 存储，列表/详情/删除/重命名/搜索 |
-| 5 | **AI 纪要生成** | ai.py + sensevoice_ai.py | 支持长文本自动分段（8K/16K 字符阈值），多服务商 |
-| 6 | **说话人分离** | speaker_diarization.py + history.py | CAM++ 嵌入 + AHC 聚类 |
-| 7 | **补转录** | history.py | 对有音频无文本的记录重新 ASR |
-| 8 | **导出** | export.py + main_app.py | WAV/ASR(TXT)/LLM(TXT)/全部(ZIP)，原生另存为对话框 |
-| 9 | **多模型选择** | sensevoice_ai.py + ai.py | validated_models 列表，toolbar 下拉切换 |
-| 10 | **本地模型健康检查** | sensevoice_ai.py | 30 秒轮询，离线模型标记 ⚠️ |
+| 1 | **实时录音 + 实时转写** | recorder.js + recordings.py + sensevoice_background.py | 边录边转：麦克风采集 → 实时 VAD+ASR → 文本实时显示 |
+| 2 | **文件上传转录** | files.py + sensevoice_background.py | 上传已有音频文件 → 后台 VAD+ASR+说话人分离+LLM优化 |
+| 3 | **历史记录 CRUD** | history.py + sensevoice_db.py | SQLite 存储，列表/详情/删除/重命名/搜索 |
+| 4 | **AI 纪要生成** | ai.py + sensevoice_ai.py | 支持长文本自动分段（8K/16K 字符阈值），多服务商 |
+| 5 | **说话人分离** | speaker_diarization.py + history.py | CAM++ 嵌入 + AHC 聚类 |
+| 6 | **补转录** | history.py | 对有音频无文本的记录重新 ASR |
+| 7 | **导出** | export.py + main_app.py | WAV/ASR(TXT)/LLM(TXT)/全部(ZIP)，原生另存为对话框 |
+| 8 | **多模型选择** | sensevoice_ai.py + ai.py | validated_models 列表，toolbar 下拉切换 |
+| 9 | **本地模型健康检查** | sensevoice_ai.py | 30 秒轮询，离线模型标记 ⚠️ |
 
 ### 2.2 UI 功能
 
@@ -156,33 +155,23 @@
 
 ## 四、数据流架构
 
-### 4.1 实时录音（原生模式）
+### 4.1 实时录音 + 实时转写
 ```
-AVAudioEngine → tap callback → queue.Queue → background thread
-                    ↓                              ↓
-             mic_get_level()              handle_realtime_stream
-                    ↓                         ↓          ↓
-             前端波形显示                VAD → ASR → 四层文本模型
-                                              ↓
-                                    SessionManager.update()
-                                         ↓
-                                    PubSub.publish()
-                                         ↓
-                                    WebSocket → 前端
+麦克风 → 音频采集 → queue.Queue → background thread
+    ↓                                    ↓
+  波形显示                    handle_realtime_stream
+                                ↓          ↓
+                          VAD → ASR → 四层文本模型
+                                ↓
+                      SessionManager.update()
+                                ↓
+                        PubSub.publish()
+                                ↓
+                        WebSocket → 前端实时显示
 ```
+> 底层实现：原生模式用 AVAudioEngine，浏览器回退模式用 getUserMedia + WebSocket 上行
 
-### 4.2 实时录音（浏览器模式）
-```
-getUserMedia → AudioWorklet → Float32 PCM → WebSocket 上行
-                                                ↓
-                                  ws_realtime() → queue.Queue
-                                                ↓
-                                  background thread → ASR
-                                                ↓
-                                  PubSub → WebSocket → 前端
-```
-
-### 4.3 文件转录
+### 4.2 文件上传转录
 ```
 上传文件 → POST /api/files/upload → 保存临时文件
                     ↓
@@ -191,7 +180,7 @@ getUserMedia → AudioWorklet → Float32 PCM → WebSocket 上行
         manifest.json 持久化进度 → SSE 推送 → 前端
 ```
 
-### 4.4 AI 纪要
+### 4.3 AI 纪要
 ```
 点击"生成 AI 纪要" → POST /api/ai/summary
      ↓
@@ -283,12 +272,12 @@ uvicorn app_api:app --host 127.0.0.1 --port 8000
 ## 八、Swift 原生客户端迁移要点
 
 ### 必须保留的功能
-1. 三种录音模式（原生 AVAudioEngine 为主，保留浏览器 fallback）
-2. 实时 ASR + 四层文本状态模型
+1. 实时录音 + 实时转写（原生 AVAudioEngine 采集 → ASR）
+2. 文件上传转录（后台 VAD + ASR + 说话人分离 + LLM 优化）
 3. 多模型选择 + 健康检查
-4. 文件上传转录 + SSE 进度
+4. AI 纪要（分段生成）
 5. 说话人分离
-6. AI 纪要（分段生成）
+6. 补转录
 7. 导出四种格式
 8. 搜索 + 历史管理
 
