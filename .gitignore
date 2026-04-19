@@ -1,0 +1,23 @@
+# Build
+build/
+.build/
+DerivedData/
+*.xcarchive
+
+# Xcode
+MacRecord.xcodeproj/xcuserdata/
+MacRecord.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcuserstate
+
+# Large binary files (download separately)
+Frameworks/sherpa-onnx.xcframework/
+MacRecord/Resources/sensevoice-model/
+MacRecord/Resources/python_env/
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# DMG
+*.dmg

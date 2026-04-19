@@ -1,0 +1,51 @@
+name: MacRecord
+options:
+  bundleIdPrefix: com.hansluo
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+targets:
+  MacRecord:
+    type: application
+    platform: macOS
+    sources:
+      - MacRecord
+    resources:
+      - path: MacRecord/Resources/sensevoice-model
+        buildPhase: resources
+      - path: MacRecord/Resources/vad
+        buildPhase: resources
+    dependencies:
+      - framework: Frameworks/sherpa-onnx.xcframework
+        embed: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hansluo.mac-record
+        PRODUCT_NAME: Mac-Record
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_FILE: MacRecord/Info.plist
+        CODE_SIGN_ENTITLEMENTS: MacRecord/MacRecord.entitlements
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "5.10"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        DEAD_CODE_STRIPPING: YES
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        SWIFT_STRICT_CONCURRENCY: minimal
+        COMBINE_HIDPI_IMAGES: YES
+        ENABLE_HARDENED_RUNTIME: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SWIFT_OBJC_BRIDGING_HEADER: MacRecord/SherpaOnnx-Bridging-Header.h
+        HEADER_SEARCH_PATHS:
+          - "$(PROJECT_DIR)/Frameworks/sherpa-onnx.xcframework/macos-arm64/Headers"
+        LIBRARY_SEARCH_PATHS:
+          - "$(PROJECT_DIR)/Frameworks/sherpa-onnx.xcframework/macos-arm64"
+        OTHER_LDFLAGS:
+          - "-lc++"
+          - "-framework"
+          - "Accelerate"
+          - "-framework"
+          - "Foundation"

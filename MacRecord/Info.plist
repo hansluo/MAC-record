@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Mac-Record 需要访问麦克风进行语音录制和实时转写</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Mac-Record 需要使用语音识别将录音转为文字</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Mac-Record 的「Self 记录」功能需要录屏与系统录音权限来捕获电脑系统音频</string>
+    <key>CFBundleName</key>
+    <string>Mac-Record</string>
+    <key>CFBundleDisplayName</key>
+    <string>Mac-Record 语音转写</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.hansluo.mac-record</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
+</dict>
+</plist>
