@@ -584,18 +584,83 @@ struct LLMModelTab: View {
 
 struct PromptTab: View {
     @EnvironmentObject private var appState: AppState
+    @State private var showResetAlert = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("默认纪要 Prompt")
-                .font(.headline)
-            TextEditor(text: $appState.llmConfigStore.defaultPrompt)
-                .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 300)
-                .border(Color(nsColor: .separatorColor))
-            Button("保存") { appState.llmConfigStore.save() }
-                .buttonStyle(.borderedProminent)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // 纪要 Prompt
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("默认纪要 Prompt")
+                            .font(.headline)
+                        Spacer()
+                        Button("恢复默认") { showResetAlert = true }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text("用于 AI 纪要生成。使用 {text} 占位符表示转录文本插入位置。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    TextEditor(text: $appState.llmConfigStore.defaultPrompt)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minHeight: 280)
+                        .padding(4)
+                        .background(Color(nsColor: .textBackgroundColor))
+                        .cornerRadius(6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color(nsColor: .separatorColor))
+                        )
+                }
+
+                Divider()
+
+                // ASR 纠错 Prompt
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("语音输入纠错 Prompt")
+                        .font(.headline)
+
+                    Text("用于语音输入的 AI 纠错。作为 system message 发送。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    TextEditor(text: $appState.llmConfigStore.asrOptimizePrompt)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minHeight: 160)
+                        .padding(4)
+                        .background(Color(nsColor: .textBackgroundColor))
+                        .cornerRadius(6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color(nsColor: .separatorColor))
+                        )
+                }
+
+                HStack {
+                    Button("保存") {
+                        appState.llmConfigStore.save()
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Text("修改后点击保存生效")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding()
         }
-        .padding()
+        .alert("恢复默认 Prompt", isPresented: $showResetAlert) {
+            Button("取消", role: .cancel) {}
+            Button("恢复", role: .destructive) {
+                appState.llmConfigStore.defaultPrompt = LLMConfigStore.builtinDefaultPrompt
+                appState.llmConfigStore.asrOptimizePrompt = LLMConfigStore.builtinASRPrompt
+                appState.llmConfigStore.save()
+            }
+        } message: {
+            Text("将纪要 Prompt 和纠错 Prompt 恢复为内置默认值，当前自定义内容将丢失。")
+        }
     }
 }
