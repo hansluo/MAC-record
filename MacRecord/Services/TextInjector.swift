@@ -21,14 +21,21 @@ struct TextInjector {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
 
-        // 3. 小延迟让剪贴板内容生效
-        try? await Task.sleep(for: .milliseconds(50))
+        // 3. 等待剪贴板内容生效（某些应用需要更长时间）
+        try? await Task.sleep(for: .milliseconds(100))
 
-        // 4. 模拟 Cmd+V 粘贴
+        // 4. 确认剪贴板确实已写入正确内容
+        if pasteboard.string(forType: .string) != text {
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+
+        // 5. 模拟 Cmd+V 粘贴
         simulatePaste()
 
-        // 5. 延迟后恢复原剪贴板内容
-        try? await Task.sleep(for: .milliseconds(200))
+        // 6. 等待粘贴完成后恢复原剪贴板内容
+        try? await Task.sleep(for: .milliseconds(500))
         restorePasteboard(pasteboard, from: backup)
 
         print("[TextInjector] 文本已注入: \(text.prefix(30))...")
@@ -54,11 +61,19 @@ struct TextInjector {
         // 2. 粘贴新文本（替换选中内容）
         pasteboard.clearContents()
         pasteboard.setString(newText, forType: .string)
-        try? await Task.sleep(for: .milliseconds(30))
+        try? await Task.sleep(for: .milliseconds(100))
+
+        // 确认写入成功
+        if pasteboard.string(forType: .string) != newText {
+            pasteboard.clearContents()
+            pasteboard.setString(newText, forType: .string)
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+
         simulatePaste()
 
         // 3. 恢复剪贴板
-        try? await Task.sleep(for: .milliseconds(200))
+        try? await Task.sleep(for: .milliseconds(500))
         restorePasteboard(pasteboard, from: backup)
     }
 

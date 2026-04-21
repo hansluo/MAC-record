@@ -202,6 +202,21 @@ struct ContentView: View {
                             .lineLimit(2)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
+
+                    // DRM 保护提示（Self 模式下检测到保护应用时）
+                    if appState.audioSource == .systemAudio,
+                       let warning = appState.systemAudioRecorder?.drmWarning {
+                        HStack(spacing: 4) {
+                            Image(systemName: "lock.shield")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                            Text(warning)
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             } else {
                 Button {

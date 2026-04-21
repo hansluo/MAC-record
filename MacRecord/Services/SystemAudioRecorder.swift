@@ -60,19 +60,48 @@ class SystemAudioRecorder: NSObject, ObservableObject {
         try await startWithScreenCaptureKit(content: content)
     }
 
+    /// DRM 保护应用的 bundle ID 列表（这些应用会黑屏，但音频仍能录到）
+    private let drmProtectedApps = [
+        "com.apple.tv",          // Apple TV+
+        "com.apple.Music",       // Apple Music
+        "com.netflix.Netflix",   // Netflix
+        "com.spotify.client",    // Spotify
+        "com.disney.disneyplus", // Disney+
+        "com.primevideo.app",    // Prime Video
+    ]
+
+    /// 是否检测到有 DRM 保护应用在运行（用于 UI 提示）
+    @Published var hasDRMApp = false
+    /// DRM 提示信息
+    @Published var drmWarning: String?
+
     private func startWithScreenCaptureKit(content: SCShareableContent) async throws {
         guard let display = content.displays.first else {
             throw SystemAudioError.noDisplay
+        }
+
+        // 检测是否有 DRM 保护的应用在运行，给用户提示
+        let runningDRMApps = content.applications.filter { app in
+            drmProtectedApps.contains(app.bundleIdentifier)
+        }
+        if !runningDRMApps.isEmpty {
+            let names = runningDRMApps.map { $0.applicationName }.joined(separator: "、")
+            await MainActor.run {
+                self.hasDRMApp = true
+                self.drmWarning = "检测到 \(names) 正在运行。这些应用有 DRM 版权保护，画面会黑屏，但声音仍会被正常录制。"
+            }
         }
 
         let filter = SCContentFilter(display: display, excludingWindows: [])
 
         let config = SCStreamConfiguration()
         config.capturesAudio = true
-        config.excludesCurrentProcessAudio = false
+        config.excludesCurrentProcessAudio = true
+        // 把视频帧率降到最低（每100秒才捕获一帧），尽量不触发视频通道
+        config.minimumFrameInterval = CMTime(value: 100, timescale: 1)
+        // 最小分辨率
         config.width = 2
         config.height = 2
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
         config.sampleRate = 16000
         config.channelCount = 1
 
@@ -172,10 +201,10 @@ class SystemAudioRecorder: NSObject, ObservableObject {
             let filter = SCContentFilter(display: display, excludingWindows: [])
             let config = SCStreamConfiguration()
             config.capturesAudio = true
-            config.excludesCurrentProcessAudio = false
+            config.excludesCurrentProcessAudio = true
+            config.minimumFrameInterval = CMTime(value: 100, timescale: 1)
             config.width = 2
             config.height = 2
-            config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
             config.sampleRate = 16000
             config.channelCount = 1
 
