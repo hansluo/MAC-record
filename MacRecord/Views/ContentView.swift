@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var showFileImporter = false
+    @State private var showTextToSummary = false
     @State private var isImporting = false
     @State private var importProgress: String = ""
     @StateObject private var recordingVM = RecordingViewModel()
@@ -39,6 +40,13 @@ struct ContentView: View {
             if case .success(let urls) = result, let url = urls.first {
                 Task { await importAudioFile(url: url) }
             }
+        }
+        .sheet(isPresented: $showTextToSummary) {
+            TextToSummaryView { recordingId in
+                appState.selectedRecordingId = recordingId
+            }
+            .environmentObject(appState)
+            .frame(minWidth: 700, minHeight: 550)
         }
         .overlay {
             if isImporting {
@@ -325,6 +333,13 @@ struct ContentView: View {
                 Label("导入文件", systemImage: "square.and.arrow.down")
             }
             .help("导入 MP3/M4A/WAV 等音频文件")
+
+            Button {
+                showTextToSummary = true
+            } label: {
+                Label("文本转纪要", systemImage: "text.badge.star")
+            }
+            .help("粘贴文本直接生成 AI 纪要（无需录音文件）")
 
             if let selectedId = appState.selectedRecordingId,
                recordings.contains(where: { $0.id == selectedId }) {

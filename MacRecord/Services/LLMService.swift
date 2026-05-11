@@ -107,7 +107,7 @@ class LLMService {
         return content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// 带 system message 的 LLM 调用（用于语音纠错等需要精确指令的场景）
+    /// 带 system message 的 LLM 调用（用于语音纠错、纪要生成等需要精确指令的场景）
     func callWithSystem(
         systemMessage: String,
         userMessage: String,
@@ -128,7 +128,7 @@ class LLMService {
         if !apiKey.isEmpty {
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
-        request.timeoutInterval = 30
+        request.timeoutInterval = 300
 
         let payload: [String: Any] = [
             "model": modelName,

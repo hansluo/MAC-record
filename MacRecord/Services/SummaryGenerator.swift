@@ -7,7 +7,6 @@ class SummaryGenerator {
 
     /// 默认分段阈值（字符数）— 当模型未设置 contextWindow 时使用
     private let defaultChunkThreshold = 32000
-    private let maxTokens = 8192
 
     /// 进度回调：(当前段, 总段数, 阶段描述)
     var onProgress: ((Int, Int, String) -> Void)?
@@ -16,14 +15,33 @@ class SummaryGenerator {
         self.configStore = configStore
     }
 
+    /// 根据模型 contextWindow 动态计算最大输出 token
+    /// 本地小模型（32K）给更大的输出空间，避免截断丢失内容
+    private func computeMaxTokens(config: LLMModelConfig) -> Int {
+        let ctx = config.contextWindow
+        if ctx <= 0 { return 8192 }
+        if ctx <= 32768 {
+            // 本地小模型：输出上限设为 context 的 40%，至少 4096
+            return max(4096, min(ctx * 2 / 5, 12288))
+        }
+        // 远程大模型：较大输出空间
+        return min(16384, ctx / 4)
+    }
+
     /// 根据模型 contextWindow 计算分段阈值（字符数）
     /// 中文约 1.5-2 token/字，prompt 预留 2000 token，输出预留 maxTokens
     private func computeChunkThreshold(config: LLMModelConfig) -> Int {
+        let maxTokens = computeMaxTokens(config: config)
         guard config.contextWindow > 0 else { return defaultChunkThreshold }
         let availableInputTokens = config.contextWindow - maxTokens - 2000
         guard availableInputTokens > 1000 else { return 4000 }
         let maxChars = Int(Double(availableInputTokens) / 1.5)
         return min(maxChars, defaultChunkThreshold)
+    }
+
+    /// 判断是否为本地模型（小 context window）
+    private func isLocalModel(config: LLMModelConfig) -> Bool {
+        config.kind == "local" || (config.contextWindow > 0 && config.contextWindow <= 32768)
     }
 
     /// 生成 AI 纪要（自动处理长文本分段）
@@ -35,13 +53,15 @@ class SummaryGenerator {
         let apiKey = config.apiKey
         let prompt = customPrompt ?? configStore.activePrompt
         let chunkThreshold = computeChunkThreshold(config: config)
+        let maxTokens = computeMaxTokens(config: config)
 
-        print("[SummaryGenerator] 文本长度: \(text.count)字, 分段阈值: \(chunkThreshold)字, contextWindow: \(config.contextWindow)")
+        print("[SummaryGenerator] 文本长度: \(text.count)字, 分段阈值: \(chunkThreshold)字, maxTokens: \(maxTokens), contextWindow: \(config.contextWindow), 本地模型: \(isLocalModel(config: config))")
 
         if text.count <= chunkThreshold {
             onProgress?(1, 1, "正在生成纪要…")
             return try await callWithRetry(
-                text: text, prompt: prompt, config: config, apiKey: apiKey, chunkThreshold: chunkThreshold
+                text: text, prompt: prompt, config: config, apiKey: apiKey,
+                chunkThreshold: chunkThreshold, maxTokens: maxTokens
             )
         }
 
@@ -51,7 +71,8 @@ class SummaryGenerator {
         if chunks.count == 1 {
             onProgress?(1, 1, "正在生成纪要…")
             return try await callWithRetry(
-                text: chunks[0], prompt: prompt, config: config, apiKey: apiKey, chunkThreshold: chunkThreshold
+                text: chunks[0], prompt: prompt, config: config, apiKey: apiKey,
+                chunkThreshold: chunkThreshold, maxTokens: maxTokens
             )
         }
 
@@ -62,16 +83,12 @@ class SummaryGenerator {
         for (index, chunk) in chunks.enumerated() {
             onProgress?(index + 1, totalChunks, "正在处理第 \(index + 1)/\(totalChunks) 段…")
 
-            let segmentPrefix = "【以下是完整录音的第 \(index + 1)/\(totalChunks) 部分】\n\n"
-            let segmentPrompt: String
-            if prompt.contains("{text}") {
-                segmentPrompt = prompt.replacingOccurrences(of: "{text}", with: segmentPrefix + "{text}")
-            } else {
-                segmentPrompt = prompt + "\n\n" + segmentPrefix + "{text}"
-            }
+            let segmentContext = "【这是完整录音的第 \(index + 1)/\(totalChunks) 部分，请完整处理本段全部内容，不要遗漏任何讨论要点】"
 
             let result = try await callWithRetry(
-                text: chunk, prompt: segmentPrompt, config: config, apiKey: apiKey, chunkThreshold: chunkThreshold
+                text: chunk, prompt: prompt, config: config, apiKey: apiKey,
+                chunkThreshold: chunkThreshold, maxTokens: maxTokens,
+                extraSystemNote: segmentContext
             )
             segmentSummaries.append("【第 \(index + 1) 部分】\n\(result)")
             print("[SummaryGenerator] 段 \(index + 1)/\(totalChunks) 完成")
@@ -82,7 +99,8 @@ class SummaryGenerator {
         // ★ 所有多段结果都做全局整合（递归支持）
         onProgress?(totalChunks, totalChunks, "正在整合全部纪要…")
         return try await mergeSegments(
-            merged: merged, userPrompt: prompt, config: config, apiKey: apiKey, chunkThreshold: chunkThreshold, depth: 0
+            merged: merged, userPrompt: prompt, config: config, apiKey: apiKey,
+            chunkThreshold: chunkThreshold, maxTokens: maxTokens, depth: 0
         )
     }
 
@@ -90,24 +108,25 @@ class SummaryGenerator {
 
     /// 递归整合分段纪要（最多 2 层递归，防止无限循环）
     private func mergeSegments(
-        merged: String, userPrompt: String, config: LLMModelConfig, apiKey: String, chunkThreshold: Int, depth: Int
+        merged: String, userPrompt: String, config: LLMModelConfig, apiKey: String,
+        chunkThreshold: Int, maxTokens: Int, depth: Int
     ) async throws -> String {
-        let mergePrompt = """
-        以下是一段长录音分段处理后的多份纪要，请将它们整合为一份完整、连贯的纪要。
-        整合要求：
-        1. 完整保留所有段落中的讨论内容、观点、数据和细节，不要精简或压缩
-        2. 仅合并明显重复的内容（同一件事在不同段出现），不同话题的内容全部保留
-        3. 按讨论议题/时间线重新组织结构
-        4. 输出风格和格式与各分段纪要保持一致
+        let mergeSystemPrompt = """
+        你是会议纪要整合专家。你的任务是将分段处理的多份纪要整合为一份完整文档。
 
-        {text}
+        整合铁律：
+        1. 所有段落中出现的讨论内容、观点、数据、人名、细节必须100%保留，绝对不允许删减或压缩
+        2. 仅合并完全重复的内容（同一句话在不同段重复出现），不同话题即使相似也必须全部保留
+        3. 按讨论议题或时间线重新组织结构
+        4. 输出格式使用 Markdown，保持与各分段纪要一致的详细程度
         """
 
         // 如果整合文本本身不超限，直接调用
         if merged.count <= chunkThreshold {
             do {
-                return try await callWithRetry(
-                    text: merged, prompt: mergePrompt, config: config, apiKey: apiKey, chunkThreshold: chunkThreshold
+                return try await callLLMWithSystemPrompt(
+                    systemPrompt: mergeSystemPrompt, text: merged,
+                    config: config, apiKey: apiKey, maxTokens: maxTokens
                 )
             } catch {
                 print("[SummaryGenerator] 全局整合失败(depth=\(depth))，返回拼接版: \(error.localizedDescription)")
@@ -126,8 +145,9 @@ class SummaryGenerator {
         var subResults: [String] = []
         for sub in subChunks {
             do {
-                let result = try await callWithRetry(
-                    text: sub, prompt: mergePrompt, config: config, apiKey: apiKey, chunkThreshold: chunkThreshold
+                let result = try await callLLMWithSystemPrompt(
+                    systemPrompt: mergeSystemPrompt, text: sub,
+                    config: config, apiKey: apiKey, maxTokens: maxTokens
                 )
                 subResults.append(result)
             } catch {
@@ -136,21 +156,62 @@ class SummaryGenerator {
         }
         let reMerged = subResults.joined(separator: "\n\n")
         return try await mergeSegments(
-            merged: reMerged, userPrompt: userPrompt, config: config, apiKey: apiKey, chunkThreshold: chunkThreshold, depth: depth + 1
+            merged: reMerged, userPrompt: userPrompt, config: config, apiKey: apiKey,
+            chunkThreshold: chunkThreshold, maxTokens: maxTokens, depth: depth + 1
         )
     }
 
-    // MARK: - LLM 调用（带自动重试）
+    // MARK: - LLM 调用
+
+    /// 使用 system + user 分离的方式调用 LLM（纪要生成核心调用）
+    private func callLLMWithSystemPrompt(
+        systemPrompt: String, text: String,
+        config: LLMModelConfig, apiKey: String, maxTokens: Int
+    ) async throws -> String {
+        return try await llmService.callWithSystem(
+            systemMessage: systemPrompt,
+            userMessage: text,
+            apiURL: config.apiURL,
+            apiKey: apiKey,
+            modelName: config.modelName,
+            maxTokens: maxTokens,
+            temperature: 0.3
+        )
+    }
 
     /// 调用 LLM，如果遇到 context_length_exceeded 自动将文本切半重试
     private func callWithRetry(
-        text: String, prompt: String, config: LLMModelConfig, apiKey: String, chunkThreshold: Int
+        text: String, prompt: String, config: LLMModelConfig, apiKey: String,
+        chunkThreshold: Int, maxTokens: Int, extraSystemNote: String? = nil
     ) async throws -> String {
+        // ★ 将 prompt 拆分为 system（指令）+ user（文本），让模型更好理解任务
+        let systemPrompt: String
+        let userText: String
+
+        if prompt.contains("{text}") {
+            // prompt 中有 {text} 占位符：占位符前面的是 system 指令
+            let parts = prompt.components(separatedBy: "{text}")
+            var sysMsg = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            if let note = extraSystemNote {
+                sysMsg += "\n\n" + note
+            }
+            systemPrompt = sysMsg
+            // {text} 后面的内容（如有）附加到文本末尾
+            let suffix = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+            userText = suffix.isEmpty ? text : text + "\n\n" + suffix
+        } else {
+            var sysMsg = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let note = extraSystemNote {
+                sysMsg += "\n\n" + note
+            }
+            systemPrompt = sysMsg
+            userText = text
+        }
+
         do {
-            return try await llmService.call(
-                text: text, prompt: prompt,
-                apiURL: config.apiURL, apiKey: apiKey,
-                modelName: config.modelName, maxTokens: maxTokens
+            return try await callLLMWithSystemPrompt(
+                systemPrompt: systemPrompt, text: userText,
+                config: config, apiKey: apiKey, maxTokens: maxTokens
             )
         } catch let error as LLMError where error.isContextLengthExceeded {
             // ★ context 超限：将文本切半，分别调用后合并
@@ -159,11 +220,9 @@ class SummaryGenerator {
             let subChunks = splitByParagraphs(text: text, maxChars: halfSize)
             var subResults: [String] = []
             for sub in subChunks {
-                // 递归重试（如果再超限会继续切半，最多递归 3 层 = 1/8 原文）
-                let subResult = try await llmService.call(
-                    text: sub, prompt: prompt,
-                    apiURL: config.apiURL, apiKey: apiKey,
-                    modelName: config.modelName, maxTokens: maxTokens
+                let subResult = try await callLLMWithSystemPrompt(
+                    systemPrompt: systemPrompt, text: sub,
+                    config: config, apiKey: apiKey, maxTokens: maxTokens
                 )
                 subResults.append(subResult)
             }

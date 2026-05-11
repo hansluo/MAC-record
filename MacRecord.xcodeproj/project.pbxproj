@@ -10,6 +10,7 @@
 		021E115FCA5E4F52345752CF /* NativeASRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEAB36CCE0B2FCD684ABD98E /* NativeASRService.swift */; };
 		0688244A4F3B86540A61AB2E /* Recording.swift in Sources */ = {isa = PBXBuildFile; fileRef = F794A192275316F142E7013E /* Recording.swift */; };
 		0AF4FD1248F69596BBD5F552 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC34ECB3A51358BE93935BC0 /* HotkeyManager.swift */; };
+		0BCDDF94826FE098C279DD2C /* TextToSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51C8A4250497CC75694654E8 /* TextToSummaryView.swift */; };
 		1380ED40656E5FA927C1137D /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4A002934F86FECF480AB33E /* AppState.swift */; };
 		145D10EE6015568F3D3ECA03 /* SherpaOnnxVADWrapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B236F46CAA13B2E3694CDDF /* SherpaOnnxVADWrapper.swift */; };
 		25DDBAA1D2DA8D0C316A09F0 /* VoiceInputSettingsTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB4EF9E46019D1A408A2F840 /* VoiceInputSettingsTab.swift */; };
@@ -64,6 +65,7 @@
 		4179FBCB84C44489C2042049 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		4949D2B0A52327FC16974BCC /* AudioPreprocessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPreprocessor.swift; sourceTree = "<group>"; };
 		4ACC9874612404EC465FC2E7 /* MacRecordApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRecordApp.swift; sourceTree = "<group>"; };
+		51C8A4250497CC75694654E8 /* TextToSummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextToSummaryView.swift; sourceTree = "<group>"; };
 		66ACCB3D3DA5E80EADBE89CD /* MarkdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownView.swift; sourceTree = "<group>"; };
 		6C9707BA4A94EAFF8D544D73 /* ASRConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ASRConfigStore.swift; sourceTree = "<group>"; };
 		6D79D730F7A4699F7881F3EF /* MacRecord.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MacRecord.entitlements; sourceTree = "<group>"; };
@@ -181,6 +183,7 @@
 				D284FA5E81F60292A6F2A823 /* RecordingView.swift */,
 				A730062254CACF84BDCA0B77 /* SettingsView.swift */,
 				4179FBCB84C44489C2042049 /* SidebarView.swift */,
+				51C8A4250497CC75694654E8 /* TextToSummaryView.swift */,
 				7633E02B44A704FF61D47AA7 /* VoiceInputIndicatorWindow.swift */,
 				DB4EF9E46019D1A408A2F840 /* VoiceInputSettingsTab.swift */,
 				BB64B4AA09859E8CBCDD621E /* Components */,
@@ -393,6 +396,7 @@
 				390410A0300F6D80AE303DFD /* SummaryGenerator.swift in Sources */,
 				7AEC07DD3FA4FF4138229D2E /* SystemAudioRecorder.swift in Sources */,
 				47647AEBFE234705EB5C380A /* TextInjector.swift in Sources */,
+				0BCDDF94826FE098C279DD2C /* TextToSummaryView.swift in Sources */,
 				771FD63FF44E0088B45484B9 /* VoiceInputConfigStore.swift in Sources */,
 				83080AF429C0C5310D3A4D3E /* VoiceInputCorrectionService.swift in Sources */,
 				8D80BC00775F0B2B000DEE79 /* VoiceInputIndicatorWindow.swift in Sources */,
