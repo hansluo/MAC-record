@@ -65,7 +65,71 @@ class ASRConfigStore: ObservableObject {
     @Published var selectedEngine: ASREngineType = .senseVoiceNative
     @Published var senseVoiceDownloaded: Bool = true  // 测试期间默认已下载
 
+    /// Python 环境安装状态
+    @Published var pythonInstallState: PythonInstallState = .idle
+    @Published var pythonInstallProgress: String = ""
+
+    enum PythonInstallState: Equatable {
+        case idle
+        case checking
+        case installing(step: String)
+        case ready
+        case failed(String)
+    }
+
     private let configURL: URL
+
+    /// Python 虚拟环境的标准安装路径
+    static let pythonEnvPath: String = {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("MacRecord/python_env", isDirectory: true).path
+    }()
+
+    /// 检查 Python 环境是否可用
+    var isPythonEnvReady: Bool {
+        let envPath = Self.pythonEnvPath
+        let pythonPath = envPath + "/bin/python3"
+        let serverScript = envPath + "/asr_server.py"
+        return FileManager.default.fileExists(atPath: pythonPath)
+            && FileManager.default.fileExists(atPath: serverScript)
+    }
+
+    /// 查找可用的系统 Python3 路径
+    static func findSystemPython() -> String? {
+        let candidates = [
+            "/opt/homebrew/bin/python3",
+            "/usr/local/bin/python3",
+            "/usr/bin/python3",
+        ]
+        for path in candidates {
+            if FileManager.default.fileExists(atPath: path) {
+                return path
+            }
+        }
+        return nil
+    }
+
+    /// 也检查开发环境的 whisper_env
+    var pythonEnvDir: String? {
+        // 优先 App Support 下的标准路径
+        let standardPath = Self.pythonEnvPath
+        if FileManager.default.fileExists(atPath: standardPath + "/bin/python3") {
+            return standardPath
+        }
+        // App Bundle 内
+        if let bundlePath = Bundle.main.resourcePath {
+            let bundleEnv = bundlePath + "/python_env"
+            if FileManager.default.fileExists(atPath: bundleEnv + "/bin/python3") {
+                return bundleEnv
+            }
+        }
+        // 开发环境
+        let devPath = NSHomeDirectory() + "/Desktop/whisper_env"
+        if FileManager.default.fileExists(atPath: devPath + "/bin/python3") {
+            return devPath
+        }
+        return nil
+    }
 
     init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!

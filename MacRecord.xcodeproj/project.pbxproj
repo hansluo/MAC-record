@@ -24,6 +24,7 @@
 		4EB13923CA8CE5AD32A50502 /* AudioFileManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEB0ED2C245CDA6F26F17924 /* AudioFileManager.swift */; };
 		4ED684D6D292B4AA1BD76C60 /* VoiceInputService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2443C8CAF4F2BBD3A1C9969A /* VoiceInputService.swift */; };
 		52F521101ADABCFA12AF7662 /* tokens.txt in Resources */ = {isa = PBXBuildFile; fileRef = 89CAC2871B14CB4C3F70B75D /* tokens.txt */; };
+		570E0C7DEC0BD8DE7A6F47EA /* PythonEnvInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23CE74D2EF8E1F48ED8B362F /* PythonEnvInstaller.swift */; };
 		63ABE9DF8099970616628F3B /* RecordingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D284FA5E81F60292A6F2A823 /* RecordingView.swift */; };
 		6FBD14783F7AA72C2A1C7C78 /* AppleSpeechService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 084C4E9C57F7EFEA9B790947 /* AppleSpeechService.swift */; };
 		750DABC2142389B8D1740E6F /* MarkdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66ACCB3D3DA5E80EADBE89CD /* MarkdownView.swift */; };
@@ -59,6 +60,7 @@
 		084C4E9C57F7EFEA9B790947 /* AppleSpeechService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSpeechService.swift; sourceTree = "<group>"; };
 		08828129C326E33A88548F49 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		0CAC82B99899B7ABDA57395D /* model.int8.onnx */ = {isa = PBXFileReference; path = model.int8.onnx; sourceTree = "<group>"; };
+		23CE74D2EF8E1F48ED8B362F /* PythonEnvInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonEnvInstaller.swift; sourceTree = "<group>"; };
 		23D842A7CDF8EA5F0DF28C51 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		2443C8CAF4F2BBD3A1C9969A /* VoiceInputService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceInputService.swift; sourceTree = "<group>"; };
 		40B8023FE9D23F8ED6FF982D /* MacRecord.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacRecord.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -239,6 +241,7 @@
 				FC34ECB3A51358BE93935BC0 /* HotkeyManager.swift */,
 				F8FE84BC08114297A5FDDBE6 /* LLMService.swift */,
 				AEAB36CCE0B2FCD684ABD98E /* NativeASRService.swift */,
+				23CE74D2EF8E1F48ED8B362F /* PythonEnvInstaller.swift */,
 				8B236F46CAA13B2E3694CDDF /* SherpaOnnxVADWrapper.swift */,
 				76ADF157F11B725B74ED5A17 /* SherpaOnnxWrapper.swift */,
 				CAC531C4396614CADA1AE46E /* SleepWakeManager.swift */,
@@ -386,6 +389,7 @@
 				A95E8AD04D6AEA1B2F973936 /* MenuBarView.swift in Sources */,
 				021E115FCA5E4F52345752CF /* NativeASRService.swift in Sources */,
 				C45E9E93332C7E4633168CA8 /* PlaybackControls.swift in Sources */,
+				570E0C7DEC0BD8DE7A6F47EA /* PythonEnvInstaller.swift in Sources */,
 				0688244A4F3B86540A61AB2E /* Recording.swift in Sources */,
 				63ABE9DF8099970616628F3B /* RecordingView.swift in Sources */,
 				CC624CB118FEE0EEF993F603 /* SettingsView.swift in Sources */,

@@ -257,7 +257,13 @@ actor ASRBridge {
     // MARK: - 路径发现
 
     private func findPythonEnvDir() -> String {
-        // 优先使用 app bundle 内的 python_env
+        // 1. App Support 标准安装路径（自动安装的环境在这里）
+        let standardPath = ASRConfigStore.pythonEnvPath
+        if FileManager.default.fileExists(atPath: standardPath + "/bin/python3") {
+            return standardPath
+        }
+
+        // 2. App Bundle 内的 python_env
         if let bundlePath = Bundle.main.resourcePath {
             let bundleEnv = bundlePath + "/python_env"
             if FileManager.default.fileExists(atPath: bundleEnv + "/bin/python3") {
@@ -265,17 +271,24 @@ actor ASRBridge {
             }
         }
 
-        // 回退到开发环境路径
+        // 3. 开发环境路径
         let devPath = NSHomeDirectory() + "/Desktop/whisper_env"
         if FileManager.default.fileExists(atPath: devPath + "/bin/python3") {
             return devPath
         }
 
-        return "/usr/local/bin"
+        // 回退：返回标准路径（让调用方根据文件不存在给出正确错误）
+        return standardPath
     }
 
     private func findASRServerScript() -> String {
-        // 优先使用 app bundle 内的
+        // 1. App Support 标准安装路径
+        let standardScript = ASRConfigStore.pythonEnvPath + "/asr_server.py"
+        if FileManager.default.fileExists(atPath: standardScript) {
+            return standardScript
+        }
+
+        // 2. App Bundle 内的
         if let bundlePath = Bundle.main.resourcePath {
             let bundleScript = bundlePath + "/python_env/asr_server.py"
             if FileManager.default.fileExists(atPath: bundleScript) {
@@ -283,9 +296,13 @@ actor ASRBridge {
             }
         }
 
-        // 回退到开发环境
-        let devPath = NSHomeDirectory() + "/Desktop/whisper_env/asr_server.py"
-        return devPath
+        // 3. 开发环境
+        let devScript = NSHomeDirectory() + "/Desktop/whisper_env/asr_server.py"
+        if FileManager.default.fileExists(atPath: devScript) {
+            return devScript
+        }
+
+        return standardScript
     }
 }
 

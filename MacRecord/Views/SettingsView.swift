@@ -30,6 +30,8 @@ struct SettingsView: View {
 
 struct ASRModelTab: View {
     @EnvironmentObject private var appState: AppState
+    @StateObject private var installer = PythonEnvInstaller()
+    @State private var showInstallSheet = false
 
     var body: some View {
         ScrollView {
@@ -43,23 +45,283 @@ struct ASRModelTab: View {
                         engine: engine,
                         isSelected: appState.asrConfigStore.selectedEngine == engine,
                         isDownloaded: isDownloaded(engine),
+                        isInstalling: engine == .senseVoice && installer.state == .installing,
                         onSelect: {
-                            Task { await appState.switchASREngine(to: engine) }
+                            selectEngine(engine)
                         },
                         onDownload: {
-                            // TODO: 实际下载逻辑
+                            showInstallSheet = true
                         }
                     )
                 }
             }
             .padding(24)
         }
+        .sheet(isPresented: $showInstallSheet) {
+            PythonInstallView(installer: installer) {
+                // 安装完成后自动切换
+                showInstallSheet = false
+                Task { await appState.switchASREngine(to: .senseVoice) }
+            }
+            .frame(minWidth: 520, minHeight: 400)
+        }
     }
 
     private func isDownloaded(_ engine: ASREngineType) -> Bool {
         switch engine {
-        case .senseVoice: return appState.asrConfigStore.senseVoiceDownloaded
-        case .senseVoiceNative: return true
+        case .senseVoice:
+            return appState.asrConfigStore.pythonEnvDir != nil
+        case .senseVoiceNative:
+            return true
+        }
+    }
+
+    private func selectEngine(_ engine: ASREngineType) {
+        if engine == .senseVoice && appState.asrConfigStore.pythonEnvDir == nil {
+            // Python 环境不存在，弹出安装引导
+            showInstallSheet = true
+        } else {
+            Task { await appState.switchASREngine(to: engine) }
+        }
+    }
+}
+
+/// Python 环境安装引导视图
+struct PythonInstallView: View {
+    @ObservedObject var installer: PythonEnvInstaller
+    @Environment(\.dismiss) private var dismiss
+    let onComplete: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // 头部
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("安装 SenseVoice (Python) 环境")
+                        .font(.title3.weight(.semibold))
+                    Text("需要下载约 1GB 的 Python 依赖")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+
+            Divider()
+
+            // 内容
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    switch installer.state {
+                    case .idle:
+                        idleView
+                    case .checking, .installing:
+                        installingView
+                    case .completed:
+                        completedView
+                    case .failed(let error):
+                        failedView(error: error)
+                    }
+                }
+                .padding(20)
+            }
+
+            Divider()
+
+            // 底部按钮
+            HStack {
+                Spacer()
+                switch installer.state {
+                case .idle:
+                    Button("取消") { dismiss() }
+                        .buttonStyle(.bordered)
+                    Button("开始安装") {
+                        installer.startInstall()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(installer.systemPythonPath == nil)
+                case .installing, .checking:
+                    Button("取消安装") {
+                        installer.cancelInstall()
+                    }
+                    .buttonStyle(.bordered)
+                case .completed:
+                    Button("完成并切换") {
+                        onComplete()
+                    }
+                    .buttonStyle(.borderedProminent)
+                case .failed:
+                    Button("关闭") { dismiss() }
+                        .buttonStyle(.bordered)
+                    Button("重试") {
+                        installer.startInstall()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+        }
+    }
+
+    @ViewBuilder
+    private var idleView: some View {
+        // 前置检查
+        VStack(alignment: .leading, spacing: 12) {
+            Label("安装前检查", systemImage: "checklist")
+                .font(.headline)
+
+            HStack(spacing: 8) {
+                if installer.systemPythonPath != nil {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("系统 Python3: \(installer.systemPythonPath!)")
+                        .font(.caption)
+                } else {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.red)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("未检测到系统 Python3")
+                            .font(.caption.weight(.medium))
+                        Text("请先安装 Python3，推荐: brew install python3")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+
+        Divider()
+
+        VStack(alignment: .leading, spacing: 8) {
+            Label("安装内容", systemImage: "shippingbox")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 4) {
+                installItem("Python 虚拟环境", "~5 MB")
+                installItem("FunASR + 模型", "~800 MB")
+                installItem("PyTorch", "~200 MB")
+                installItem("asr_server.py", "~10 KB")
+            }
+            .padding(.leading, 4)
+        }
+
+        Text("安装路径: \(ASRConfigStore.pythonEnvPath)")
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+    }
+
+    @ViewBuilder
+    private func installItem(_ name: String, _ size: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "cube.box")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            Text(name)
+                .font(.caption)
+            Spacer()
+            Text(size)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    @ViewBuilder
+    private var installingView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .scaleEffect(0.8)
+                Text(installer.progress)
+                    .font(.subheadline.weight(.medium))
+            }
+
+            // 详细日志
+            if !installer.detailLog.isEmpty {
+                ScrollView {
+                    Text(installer.detailLog)
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(maxHeight: 200)
+                .padding(8)
+                .background(Color(nsColor: .textBackgroundColor))
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color(nsColor: .separatorColor).opacity(0.3))
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var completedView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.title)
+                    .foregroundStyle(.green)
+                Text("安装成功！")
+                    .font(.headline)
+            }
+
+            Text("SenseVoice (Python) 环境已就绪，点击「完成并切换」即可使用。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            if !installer.detailLog.isEmpty {
+                DisclosureGroup("安装日志") {
+                    ScrollView {
+                        Text(installer.detailLog)
+                            .font(.system(.caption2, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                    .frame(maxHeight: 150)
+                }
+                .font(.caption)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func failedView(error: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title)
+                    .foregroundStyle(.red)
+                Text("安装失败")
+                    .font(.headline)
+            }
+
+            Text(error)
+                .font(.caption)
+                .foregroundStyle(.red)
+                .textSelection(.enabled)
+
+            if !installer.detailLog.isEmpty {
+                DisclosureGroup("安装日志") {
+                    ScrollView {
+                        Text(installer.detailLog)
+                            .font(.system(.caption2, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                    .frame(maxHeight: 150)
+                }
+                .font(.caption)
+            }
         }
     }
 }
@@ -69,6 +331,7 @@ struct ASRModelCard: View {
     let engine: ASREngineType
     let isSelected: Bool
     let isDownloaded: Bool
+    var isInstalling: Bool = false
     let onSelect: () -> Void
     let onDownload: () -> Void
 
@@ -111,6 +374,9 @@ struct ASRModelCard: View {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.title2)
                     .foregroundStyle(.green)
+            } else if isInstalling {
+                ProgressView()
+                    .scaleEffect(0.8)
             } else if isDownloaded {
                 Button("选择") {
                     onSelect()
@@ -121,7 +387,7 @@ struct ASRModelCard: View {
                 Button {
                     onDownload()
                 } label: {
-                    Label("下载", systemImage: "arrow.down.circle.fill")
+                    Label("安装", systemImage: "arrow.down.circle.fill")
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
