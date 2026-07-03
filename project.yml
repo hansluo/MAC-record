@@ -33,6 +33,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: MacRecord/MacRecord.entitlements
         CODE_SIGN_STYLE: Automatic
         SWIFT_VERSION: "5.10"
+        ARCHS: arm64
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         DEAD_CODE_STRIPPING: YES
         ENABLE_USER_SCRIPT_SANDBOXING: NO

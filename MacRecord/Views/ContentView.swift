@@ -59,6 +59,12 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .recordingTextReady)) { notification in
             handleRecordingTextReady(notification)
         }
+        .onAppear {
+            // ★ 消费可能在 View 还未就绪时暂存的录音完成信息（防丢失）
+            consumePendingRecordings()
+            // ★ 启动时清理孤立临时文件
+            cleanupOrphanedFiles()
+        }
     }
 
     // MARK: - Sidebar
@@ -481,7 +487,20 @@ struct ContentView: View {
     }
 
     private func handleRecordingCompleted(_ notification: Notification) {
-        guard let info = notification.userInfo else { return }
+        guard let rawInfo = notification.userInfo else { return }
+        // 将 [AnyHashable: Any] 转为 [String: Any]
+        let info = Dictionary(uniqueKeysWithValues: rawInfo.compactMap { key, value in
+            (key as? String).map { ($0, value) }
+        })
+        persistRecording(from: info)
+        // 从 pending 队列移除已处理的
+        if let sessionId = info["sessionId"] as? UUID {
+            appState.pendingCompletedRecordings.removeAll { ($0["sessionId"] as? UUID) == sessionId }
+        }
+    }
+
+    /// 将录音信息持久化到 SwiftData（通知处理和 pending 消费共用）
+    private func persistRecording(from info: [String: Any]) {
         let title = info["title"] as? String ?? "新录音"
         let plainText = info["plainText"] as? String ?? ""
         let timestampText = info["timestampText"] as? String ?? ""
@@ -489,6 +508,12 @@ struct ContentView: View {
         let duration = info["duration"] as? TimeInterval ?? 0
         let recordingURL = info["recordingURL"] as? URL
         let sessionId = info["sessionId"] as? UUID
+
+        // 防重复：如果已存在相同 sessionId 的记录则跳过
+        if let sid = sessionId,
+           recordings.contains(where: { $0.fileHash == sid.uuidString }) {
+            return
+        }
 
         let recording = Recording(
             title: title,
@@ -512,6 +537,22 @@ struct ContentView: View {
         }
 
         appState.selectedRecordingId = recording.id
+    }
+
+    /// 消费暂存的录音完成队列（处理通知发送时 View 未就绪的情况）
+    private func consumePendingRecordings() {
+        guard !appState.pendingCompletedRecordings.isEmpty else { return }
+        let pending = appState.pendingCompletedRecordings
+        appState.pendingCompletedRecordings.removeAll()
+        for info in pending {
+            persistRecording(from: info)
+        }
+    }
+
+    /// 清理孤立的临时录音文件
+    private func cleanupOrphanedFiles() {
+        let existingPaths = Set(recordings.compactMap { $0.audioPath })
+        AudioFileManager.shared.cleanupOrphanedTempFiles(keepHashes: existingPaths)
     }
 
     private func handleRecordingTextReady(_ notification: Notification) {

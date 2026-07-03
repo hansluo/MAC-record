@@ -82,6 +82,9 @@ class AppState: ObservableObject {
     // MARK: - 选中的历史记录
     @Published var selectedRecordingId: UUID?
 
+    // MARK: - 录音完成暂存队列（防止通知时序竞争导致录音丢失）
+    @Published var pendingCompletedRecordings: [[String: Any]] = []
+
     // MARK: - AI 配置
     @Published var llmConfigStore = LLMConfigStore()
 

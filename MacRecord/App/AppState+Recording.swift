@@ -117,18 +117,22 @@ extension AppState {
 
         let sid = sessionId.uuidString
 
+        // ★ 将录音完成信息暂存到 AppState（防止通知竞争丢失）
+        let completionInfo: [String: Any] = [
+            "sessionId": sessionId,
+            "title": autoTitle,
+            "plainText": "",
+            "timestampText": "",
+            "detectedLanguage": "",
+            "duration": duration,
+            "recordingURL": recordingURL as Any,
+        ]
+        pendingCompletedRecordings.append(completionInfo)
+
         NotificationCenter.default.post(
             name: .recordingCompleted,
             object: nil,
-            userInfo: [
-                "sessionId": sessionId,
-                "title": autoTitle,
-                "plainText": "",
-                "timestampText": "",
-                "detectedLanguage": "",
-                "duration": duration,
-                "recordingURL": recordingURL as Any,
-            ]
+            userInfo: completionInfo
         )
 
         // 后台 finalize

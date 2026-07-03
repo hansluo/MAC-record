@@ -507,6 +507,7 @@
 		32CF829F384FE464D3CF5A29 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = MacRecord/MacRecord.entitlements;
 				CODE_SIGN_STYLE = Automatic;
@@ -607,6 +608,7 @@
 		9FD207471462C73F7F8DF4FA /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = MacRecord/MacRecord.entitlements;
 				CODE_SIGN_STYLE = Automatic;
