@@ -9,22 +9,24 @@
 /* Begin PBXBuildFile section */
 		021E115FCA5E4F52345752CF /* NativeASRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEAB36CCE0B2FCD684ABD98E /* NativeASRService.swift */; };
 		0688244A4F3B86540A61AB2E /* Recording.swift in Sources */ = {isa = PBXBuildFile; fileRef = F794A192275316F142E7013E /* Recording.swift */; };
+		0A8DAA2D5ECDC881F4B574B8 /* model.onnx in Resources */ = {isa = PBXBuildFile; fileRef = 4175D277D5AEDE39A21E522D /* model.onnx */; };
 		0AF4FD1248F69596BBD5F552 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC34ECB3A51358BE93935BC0 /* HotkeyManager.swift */; };
 		0BCDDF94826FE098C279DD2C /* TextToSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51C8A4250497CC75694654E8 /* TextToSummaryView.swift */; };
 		1380ED40656E5FA927C1137D /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4A002934F86FECF480AB33E /* AppState.swift */; };
 		145D10EE6015568F3D3ECA03 /* SherpaOnnxVADWrapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B236F46CAA13B2E3694CDDF /* SherpaOnnxVADWrapper.swift */; };
+		2528424AF4038651892A394F /* ModelDownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10A27CD75EE316191615B6C6 /* ModelDownloadManager.swift */; };
 		25DDBAA1D2DA8D0C316A09F0 /* VoiceInputSettingsTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB4EF9E46019D1A408A2F840 /* VoiceInputSettingsTab.swift */; };
 		2EA62129E0CC5E76578C08F9 /* AudioPreprocessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4949D2B0A52327FC16974BCC /* AudioPreprocessor.swift */; };
 		3643E75AA3F7E8E21CD50B8A /* LLMConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CD6AD85395FC885D5343A2 /* LLMConfigStore.swift */; };
 		390410A0300F6D80AE303DFD /* SummaryGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E25E2662D2C7C66D16D3C35C /* SummaryGenerator.swift */; };
 		3D63BC489380EA2B0B43ACA7 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C99F9C90067984BCD612E9A0 /* AudioPlayer.swift */; };
+		3FA7ABB8BE8CC936B6F70962 /* ModelRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192788D9C474805CB5FA5BC2 /* ModelRegistry.swift */; };
 		433A0010A237DDDCA36EA19D /* MacRecordApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ACC9874612404EC465FC2E7 /* MacRecordApp.swift */; };
 		47647AEBFE234705EB5C380A /* TextInjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8DAC2D0DDD5C1B647A803B7 /* TextInjector.swift */; };
 		4C744211058D4FFC0886C1CD /* ExportManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3322C58C7C711D888D3943F /* ExportManager.swift */; };
 		4EB13923CA8CE5AD32A50502 /* AudioFileManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEB0ED2C245CDA6F26F17924 /* AudioFileManager.swift */; };
 		4ED684D6D292B4AA1BD76C60 /* VoiceInputService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2443C8CAF4F2BBD3A1C9969A /* VoiceInputService.swift */; };
 		52F521101ADABCFA12AF7662 /* tokens.txt in Resources */ = {isa = PBXBuildFile; fileRef = 89CAC2871B14CB4C3F70B75D /* tokens.txt */; };
-		570E0C7DEC0BD8DE7A6F47EA /* PythonEnvInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23CE74D2EF8E1F48ED8B362F /* PythonEnvInstaller.swift */; };
 		63ABE9DF8099970616628F3B /* RecordingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D284FA5E81F60292A6F2A823 /* RecordingView.swift */; };
 		6FBD14783F7AA72C2A1C7C78 /* AppleSpeechService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 084C4E9C57F7EFEA9B790947 /* AppleSpeechService.swift */; };
 		750DABC2142389B8D1740E6F /* MarkdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66ACCB3D3DA5E80EADBE89CD /* MarkdownView.swift */; };
@@ -46,25 +48,29 @@
 		BD9D8B5DDF6FF3AAB476677A /* model.int8.onnx in Resources */ = {isa = PBXBuildFile; fileRef = 0CAC82B99899B7ABDA57395D /* model.int8.onnx */; };
 		C0C467FC096EB7825C761DE4 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 781E91FD632A57CC7C6415DB /* ContentView.swift */; };
 		C45E9E93332C7E4633168CA8 /* PlaybackControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AF361D15AF12CFCE9FB14A3 /* PlaybackControls.swift */; };
+		C59848EB0FFE4646DC885663 /* 3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx in Resources */ = {isa = PBXBuildFile; fileRef = 4788F5A601ABCD71E5E0A841 /* 3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx */; };
 		CAB7924DAB99A54FB1B67B90 /* SherpaOnnxWrapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76ADF157F11B725B74ED5A17 /* SherpaOnnxWrapper.swift */; };
 		CC624CB118FEE0EEF993F603 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A730062254CACF84BDCA0B77 /* SettingsView.swift */; };
 		DC79830D2FA271DDFB83D180 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FB3C2441F4913DAF4F03D8B1 /* Assets.xcassets */; };
 		E1887DE65DF438C3709F9F1D /* AppState+Recording.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0077BAA4AB6711223755CDC /* AppState+Recording.swift */; };
+		E1B3D4455A370A5893287418 /* SherpaOnnxDiarizationWrapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3DF3533E2837039A94E69F8 /* SherpaOnnxDiarizationWrapper.swift */; };
 		E97ECA9DE20E92E20EE27128 /* silero_vad.onnx in Resources */ = {isa = PBXBuildFile; fileRef = 887611E9DF05658A5101928C /* silero_vad.onnx */; };
 		F0E689D621343A6D07AB3752 /* SleepWakeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAC531C4396614CADA1AE46E /* SleepWakeManager.swift */; };
 		F0F651722B57BBD6D3C3AD7C /* AudioEnhancer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C2E7E0A0C7EB463D3C41172 /* AudioEnhancer.swift */; };
-		FD14C9D76FFDEFEB253B8883 /* ASRBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C550CAE6A721A004F08495D4 /* ASRBridge.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		084C4E9C57F7EFEA9B790947 /* AppleSpeechService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSpeechService.swift; sourceTree = "<group>"; };
 		08828129C326E33A88548F49 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		0CAC82B99899B7ABDA57395D /* model.int8.onnx */ = {isa = PBXFileReference; path = model.int8.onnx; sourceTree = "<group>"; };
-		23CE74D2EF8E1F48ED8B362F /* PythonEnvInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonEnvInstaller.swift; sourceTree = "<group>"; };
+		10A27CD75EE316191615B6C6 /* ModelDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDownloadManager.swift; sourceTree = "<group>"; };
+		192788D9C474805CB5FA5BC2 /* ModelRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelRegistry.swift; sourceTree = "<group>"; };
 		23D842A7CDF8EA5F0DF28C51 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		2443C8CAF4F2BBD3A1C9969A /* VoiceInputService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceInputService.swift; sourceTree = "<group>"; };
 		40B8023FE9D23F8ED6FF982D /* MacRecord.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacRecord.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4175D277D5AEDE39A21E522D /* model.onnx */ = {isa = PBXFileReference; path = model.onnx; sourceTree = "<group>"; };
 		4179FBCB84C44489C2042049 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		4788F5A601ABCD71E5E0A841 /* 3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx */ = {isa = PBXFileReference; path = "3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx"; sourceTree = "<group>"; };
 		4949D2B0A52327FC16974BCC /* AudioPreprocessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPreprocessor.swift; sourceTree = "<group>"; };
 		4ACC9874612404EC465FC2E7 /* MacRecordApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRecordApp.swift; sourceTree = "<group>"; };
 		51C8A4250497CC75694654E8 /* TextToSummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextToSummaryView.swift; sourceTree = "<group>"; };
@@ -81,6 +87,7 @@
 		8BC5A857500E16BF4F66D757 /* AccessibilityHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityHelper.swift; sourceTree = "<group>"; };
 		9C2E7E0A0C7EB463D3C41172 /* AudioEnhancer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEnhancer.swift; sourceTree = "<group>"; };
 		9EC665534B4FE687D6F6BE22 /* SystemAudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAudioRecorder.swift; sourceTree = "<group>"; };
+		A3DF3533E2837039A94E69F8 /* SherpaOnnxDiarizationWrapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SherpaOnnxDiarizationWrapper.swift; sourceTree = "<group>"; };
 		A730062254CACF84BDCA0B77 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		ACA53A1E9E5445968C2278FD /* SherpaOnnx-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "SherpaOnnx-Bridging-Header.h"; sourceTree = "<group>"; };
 		AEAB36CCE0B2FCD684ABD98E /* NativeASRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeASRService.swift; sourceTree = "<group>"; };
@@ -88,7 +95,6 @@
 		B0077BAA4AB6711223755CDC /* AppState+Recording.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Recording.swift"; sourceTree = "<group>"; };
 		B3322C58C7C711D888D3943F /* ExportManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportManager.swift; sourceTree = "<group>"; };
 		C36298DF5A66F318E40F370D /* WaveformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformView.swift; sourceTree = "<group>"; };
-		C550CAE6A721A004F08495D4 /* ASRBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ASRBridge.swift; sourceTree = "<group>"; };
 		C99F9C90067984BCD612E9A0 /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
 		C9E1D0F10BD5CEFC1153466A /* AISummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISummary.swift; sourceTree = "<group>"; };
 		CAC531C4396614CADA1AE46E /* SleepWakeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepWakeManager.swift; sourceTree = "<group>"; };
@@ -154,6 +160,7 @@
 			children = (
 				C96127F97B5902C16FABBC6B /* python_env */,
 				1EAB450085E9F3D0BB93F5C9 /* sensevoice-model */,
+				9D7F04E4F4FB20ACE7FA5C5B /* speaker-diarization */,
 				183047EA7AD59A54E2D02A54 /* vad */,
 			);
 			path = Resources;
@@ -220,6 +227,14 @@
 			);
 			sourceTree = "<group>";
 		};
+		7DCD58E92E5A18FF588CDD0C /* sherpa-onnx-pyannote-segmentation-3-0 */ = {
+			isa = PBXGroup;
+			children = (
+				4175D277D5AEDE39A21E522D /* model.onnx */,
+			);
+			path = "sherpa-onnx-pyannote-segmentation-3-0";
+			sourceTree = "<group>";
+		};
 		8B57545527A5D689BBAEB370 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -228,11 +243,19 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		9D7F04E4F4FB20ACE7FA5C5B /* speaker-diarization */ = {
+			isa = PBXGroup;
+			children = (
+				4788F5A601ABCD71E5E0A841 /* 3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx */,
+				7DCD58E92E5A18FF588CDD0C /* sherpa-onnx-pyannote-segmentation-3-0 */,
+			);
+			path = "speaker-diarization";
+			sourceTree = "<group>";
+		};
 		9F9A394F82D1D824CE4440BB /* Services */ = {
 			isa = PBXGroup;
 			children = (
 				084C4E9C57F7EFEA9B790947 /* AppleSpeechService.swift */,
-				C550CAE6A721A004F08495D4 /* ASRBridge.swift */,
 				9C2E7E0A0C7EB463D3C41172 /* AudioEnhancer.swift */,
 				C99F9C90067984BCD612E9A0 /* AudioPlayer.swift */,
 				4949D2B0A52327FC16974BCC /* AudioPreprocessor.swift */,
@@ -240,8 +263,10 @@
 				B3322C58C7C711D888D3943F /* ExportManager.swift */,
 				FC34ECB3A51358BE93935BC0 /* HotkeyManager.swift */,
 				F8FE84BC08114297A5FDDBE6 /* LLMService.swift */,
+				10A27CD75EE316191615B6C6 /* ModelDownloadManager.swift */,
+				192788D9C474805CB5FA5BC2 /* ModelRegistry.swift */,
 				AEAB36CCE0B2FCD684ABD98E /* NativeASRService.swift */,
-				23CE74D2EF8E1F48ED8B362F /* PythonEnvInstaller.swift */,
+				A3DF3533E2837039A94E69F8 /* SherpaOnnxDiarizationWrapper.swift */,
 				8B236F46CAA13B2E3694CDDF /* SherpaOnnxVADWrapper.swift */,
 				76ADF157F11B725B74ED5A17 /* SherpaOnnxWrapper.swift */,
 				CAC531C4396614CADA1AE46E /* SleepWakeManager.swift */,
@@ -351,8 +376,10 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C59848EB0FFE4646DC885663 /* 3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx in Resources */,
 				DC79830D2FA271DDFB83D180 /* Assets.xcassets in Resources */,
 				BD9D8B5DDF6FF3AAB476677A /* model.int8.onnx in Resources */,
+				0A8DAA2D5ECDC881F4B574B8 /* model.onnx in Resources */,
 				E97ECA9DE20E92E20EE27128 /* silero_vad.onnx in Resources */,
 				52F521101ADABCFA12AF7662 /* tokens.txt in Resources */,
 			);
@@ -366,7 +393,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				AFCEF54495F3D78CF48B6B29 /* AISummary.swift in Sources */,
-				FD14C9D76FFDEFEB253B8883 /* ASRBridge.swift in Sources */,
 				A9306881DCBBBA92F2A3B5EE /* ASRConfigStore.swift in Sources */,
 				7FC1F54EB1BD3891C047B931 /* AccessibilityHelper.swift in Sources */,
 				E1887DE65DF438C3709F9F1D /* AppState+Recording.swift in Sources */,
@@ -387,12 +413,14 @@
 				433A0010A237DDDCA36EA19D /* MacRecordApp.swift in Sources */,
 				750DABC2142389B8D1740E6F /* MarkdownView.swift in Sources */,
 				A95E8AD04D6AEA1B2F973936 /* MenuBarView.swift in Sources */,
+				2528424AF4038651892A394F /* ModelDownloadManager.swift in Sources */,
+				3FA7ABB8BE8CC936B6F70962 /* ModelRegistry.swift in Sources */,
 				021E115FCA5E4F52345752CF /* NativeASRService.swift in Sources */,
 				C45E9E93332C7E4633168CA8 /* PlaybackControls.swift in Sources */,
-				570E0C7DEC0BD8DE7A6F47EA /* PythonEnvInstaller.swift in Sources */,
 				0688244A4F3B86540A61AB2E /* Recording.swift in Sources */,
 				63ABE9DF8099970616628F3B /* RecordingView.swift in Sources */,
 				CC624CB118FEE0EEF993F603 /* SettingsView.swift in Sources */,
+				E1B3D4455A370A5893287418 /* SherpaOnnxDiarizationWrapper.swift in Sources */,
 				145D10EE6015568F3D3ECA03 /* SherpaOnnxVADWrapper.swift in Sources */,
 				CAB7924DAB99A54FB1B67B90 /* SherpaOnnxWrapper.swift in Sources */,
 				98D1E5A325816CCCC65FC1C8 /* SidebarView.swift in Sources */,

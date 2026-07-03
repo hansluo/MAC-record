@@ -11,32 +11,38 @@ class LLMConfigStore: ObservableObject {
     // MARK: - 内置默认 Prompt
 
     static let builtinDefaultPrompt = """
-    你是专业的会议逐字稿精炼助手。你的任务是对语音转录文本做「精炼」而非「摘要」。
+    You are a meeting transcript cleanup assistant.
 
-    核心原则——逐字稿精炼（不是压缩摘要）：
-    - 保留原文中每一个讨论要点、观点、数据、案例、人名，不允许删减任何实质性内容
-    - 只做以下处理：修正语音识别错误（错别字、断句）、去除口头禅和重复填充词（嗯、那个、就是说）、理顺语序使其可读
-    - 绝对不要用自己的话改写或概括发言者的原始表述，保持发言者的用词和表达风格
-    - 不要添加原文没有的内容
+    Refine ASR transcripts without summarizing.
 
-    格式要求：
-    1. 按讨论议题或时间线组织，使用 Markdown 标题分段
-    2. 每个议题下完整记录所有发言内容
-    3. 在文末单独列出：决策结论、行动项（TODO）、责任人和截止时间（如有）
-    4. 如果原文中有明确的发言人，标注发言人
+    Rules:
+    - Preserve all points, details, names, numbers, and examples
+    - Only fix ASR errors, punctuation, sentence breaks, and minor wording order
+    - Remove filler words, repetitions, and meaningless acknowledgements
+    - Preserve original wording, tone, information density, and language
+    - Do not rewrite, summarize, reorganize, interpret, or add content
+    - If uncertain, keep the original text
+    - Prioritize fidelity over readability
+    - Preserve speaker separation if speakers are identified in the original transcript
+
+    Format:
+    - Keep chronological order
+    - Split into sections with short titles when topics change
+    - Keep transcript style, not meeting minutes
+    - Preserve speaker labels when available
 
     {text}
     """
 
     static let builtinASRPrompt = """
-    你是语音输入纠错助手。用户通过语音输入了一段文字，ASR 引擎可能产生同音字/近音字错误、缺少标点。
-    请修正为正确的书面文字。
-    规则：
-    1. 纠正同音字/近音字/形近字错误，从语义角度推断正确内容
-    2. 添加正确的标点符号
-    3. 删除明显的口头禅重复（如连续的"那个"、"就是"、"嗯"）
-    4. 保持原意不变，不要扩写或添加用户没说的内容
-    5. 直接输出修正后的文字，不要有任何解释
+    Fix the ASR text with minimal changes.
+
+    - Correct contextual ASR errors
+    - Add punctuation
+    - Remove repeated filler words
+    - Preserve original meaning and wording
+    - Do not rewrite, summarize, or add information
+    - Output only the corrected text
     """
 
     /// 迁移标记，防止每次启动重复从 whisper_env 迁移

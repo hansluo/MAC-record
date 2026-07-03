@@ -13,6 +13,8 @@ final class Recording {
     var language: String?
     var timestampText: String?
     var plainText: String?
+    var diarizedText: String?          // 带说话人标签的转录文本
+    var diarizedSpeakerCount: Int?     // 检测到的说话人数量
     var detectedLanguage: String?
     var createdAt: Date
     var updatedAt: Date
@@ -30,6 +32,8 @@ final class Recording {
         language: String? = nil,
         timestampText: String? = nil,
         plainText: String? = nil,
+        diarizedText: String? = nil,
+        diarizedSpeakerCount: Int? = nil,
         detectedLanguage: String? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
@@ -43,6 +47,8 @@ final class Recording {
         self.language = language
         self.timestampText = timestampText
         self.plainText = plainText
+        self.diarizedText = diarizedText
+        self.diarizedSpeakerCount = diarizedSpeakerCount
         self.detectedLanguage = detectedLanguage
         self.createdAt = createdAt
         self.updatedAt = updatedAt

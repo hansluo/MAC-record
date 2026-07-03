@@ -9,10 +9,14 @@ struct DetailView: View {
 
     @State private var activeTab: DetailTab = .asr
     @State private var isGeneratingSummary = false
+    @State private var generatingSummaryRecordingId: UUID?  // 正在生成纪要的录音 ID
     @State private var isRenaming = false
     @State private var editTitle = ""
     @State private var isDiarizing = false
     @State private var isRetranscribing = false
+    @State private var expectedSpeakers: Int = 0  // 0=自动检测
+    @State private var diarizationProgress: Float = 0  // 0~1 进度
+    @State private var diarizingRecordingId: UUID?      // 正在 diarize 的录音 ID
     /// 用于强制刷新纪要区域
     @State private var summaryRefreshID = UUID()
     /// 纪要生成错误信息（非空时显示 Alert）
@@ -150,20 +154,31 @@ struct DetailView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(isRetranscribing || !appState.isModelReady)
-                }
+                    .disabled(isRetranscribing || isDiarizing || !appState.isModelReady)
 
-                // 说话人分离（仅 SenseVoice Python 支持）
-                if appState.asrConfigStore.selectedEngine == .senseVoice {
-                    Button {
-                        diarize()
+                    // 区分说话人
+                    Menu {
+                        Button("自动检测人数") {
+                            expectedSpeakers = 0
+                            performDiarization()
+                        }
+                        Divider()
+                        ForEach(2...8, id: \.self) { n in
+                            Button("\(n) 人") {
+                                expectedSpeakers = n
+                                performDiarization()
+                            }
+                        }
                     } label: {
-                        Label(isDiarizing ? "分离中…" : "说话人分离", systemImage: "person.2.fill")
-                            .font(.caption)
+                        Label(
+                            isDiarizing ? "识别中…" : (recording.diarizedText != nil ? "重新区分" : "区分说话人"),
+                            systemImage: "person.2.wave.2"
+                        )
+                        .font(.caption)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(isDiarizing || (recording.plainText ?? "").isEmpty)
+                    .menuStyle(.borderlessButton)
+                    .frame(width: isDiarizing ? 90 : (recording.diarizedText != nil ? 85 : 100))
+                    .disabled(isDiarizing || isRetranscribing || !appState.isModelReady)
                 }
 
                 // 复制
@@ -200,7 +215,7 @@ struct DetailView: View {
     @ViewBuilder
     private var asrPanel: some View {
         let text = recording.plainText ?? ""
-        if text.isEmpty {
+        if text.isEmpty && recording.diarizedText == nil {
             VStack(spacing: 16) {
                 Image(systemName: "text.badge.xmark")
                     .font(.system(size: 32))
@@ -221,6 +236,23 @@ struct DetailView: View {
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 200)
+        } else if let diarized = recording.diarizedText, !diarized.isEmpty {
+            // 带说话人标签的文本
+            VStack(alignment: .leading, spacing: 4) {
+                if let count = recording.diarizedSpeakerCount, count > 0 {
+                    HStack(spacing: 6) {
+                        Image(systemName: "person.2.fill")
+                            .font(.caption2)
+                        Text("检测到 \(count) 位说话人")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, 8)
+                }
+
+                DiarizedTextView(text: diarized)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             Text(text)
                 .font(.body)
@@ -228,10 +260,26 @@ struct DetailView: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+
+        // Diarization 进度（仅当前录音正在处理时显示）
+        if isDiarizing && diarizingRecordingId == recording.id {
+            VStack(spacing: 6) {
+                ProgressView(value: Double(diarizationProgress), total: 1.0)
+                    .progressViewStyle(.linear)
+                HStack(spacing: 4) {
+                    Text("正在区分说话人… \(Int(diarizationProgress * 100))%")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+            }
+            .padding(.top, 8)
+        }
     }
 
     @ViewBuilder
     private var summaryPanel: some View {
+        let isSummaryInProgress = isGeneratingSummary && generatingSummaryRecordingId == recording.id
         VStack(alignment: .leading, spacing: 16) {
             // 生成按钮
             HStack {
@@ -239,23 +287,23 @@ struct DetailView: View {
                     generateSummary()
                 } label: {
                     HStack(spacing: 6) {
-                        if isGeneratingSummary {
+                        if isSummaryInProgress {
                             ProgressView()
                                 .scaleEffect(0.7)
                         } else {
                             Image(systemName: "sparkles")
                         }
-                        Text(isGeneratingSummary ? "生成中…" : "生成 AI 纪要")
+                        Text(isSummaryInProgress ? "生成中…" : "生成 AI 纪要")
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(isGeneratingSummary || (recording.plainText ?? "").isEmpty)
+                .disabled(isSummaryInProgress || ((recording.plainText ?? "").isEmpty && (recording.diarizedText ?? "").isEmpty))
 
                 if appState.llmConfigStore.models.isEmpty {
                     Text("请先在设置中配置 AI 模型")
                         .font(.caption)
                         .foregroundStyle(.orange)
-                } else if isGeneratingSummary, !summaryProgress.isEmpty {
+                } else if isSummaryInProgress, !summaryProgress.isEmpty {
                     Text(summaryProgress)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -287,7 +335,12 @@ struct DetailView: View {
         var text = ""
         switch activeTab {
         case .asr:
-            text = recording.plainText ?? ""
+            // 优先复制带说话人标签的文本
+            if let diarized = recording.diarizedText, !diarized.isEmpty {
+                text = diarized
+            } else {
+                text = recording.plainText ?? ""
+            }
         case .summary:
             text = recording.summaries?.sorted(by: { $0.createdAt > $1.createdAt }).first?.summary ?? ""
         }
@@ -297,8 +350,17 @@ struct DetailView: View {
     }
 
     private func generateSummary() {
-        guard let text = recording.plainText, !text.isEmpty else { return }
+        // 优先使用带说话人标签的文本
+        let text: String
+        if let diarized = recording.diarizedText, !diarized.isEmpty {
+            text = diarized
+        } else if let plain = recording.plainText, !plain.isEmpty {
+            text = plain
+        } else {
+            return
+        }
         isGeneratingSummary = true
+        generatingSummaryRecordingId = recording.id
         summaryProgress = "准备中…"
         let targetRecording = recording
         let configStore = appState.llmConfigStore
@@ -306,6 +368,7 @@ struct DetailView: View {
             defer {
                 Task { @MainActor in
                     self.isGeneratingSummary = false
+                    self.generatingSummaryRecordingId = nil
                     self.summaryProgress = ""
                 }
             }
@@ -344,26 +407,10 @@ struct DetailView: View {
         }
     }
 
-    private func diarize() {
-        guard let bridge = appState.asrBridge, let audioPath = recording.audioPath else { return }
-        isDiarizing = true
-        Task {
-            defer { isDiarizing = false }
-            do {
-                let result = try await bridge.diarize(audioPath: AudioFileManager.shared.fullPath(for: audioPath))
-                recording.plainText = result.labeledText
-                recording.updatedAt = Date()
-            } catch {
-                print("说话人分离失败: \(error)")
-            }
-        }
-    }
-
     private func retranscribe() {
         guard let audioPath = recording.audioPath else { return }
         isRetranscribing = true
         let fullPath = AudioFileManager.shared.fullPath(for: audioPath)
-        let engine = appState.asrConfigStore.selectedEngine
         let targetRecording = recording
 
         Task {
@@ -371,8 +418,7 @@ struct DetailView: View {
                 Task { @MainActor in self.isRetranscribing = false }
             }
             do {
-                if engine == .senseVoiceNative, let service = appState.nativeASRService {
-                    // SenseVoice 原生文件转录
+                if let service = appState.nativeASRService {
                     let result = try await service.transcribeFile(
                         audioPath: fullPath,
                         language: "auto"
@@ -382,24 +428,120 @@ struct DetailView: View {
                         targetRecording.detectedLanguage = result.detectedLanguage
                         targetRecording.updatedAt = Date()
                     }
-                } else if let bridge = appState.asrBridge {
-                    // SenseVoice Python 文件转录
-                    let result = try await bridge.transcribeFile(
-                        audioPath: fullPath,
-                        language: "auto"
-                    )
-                    await MainActor.run {
-                        targetRecording.plainText = result.plainText
-                        targetRecording.timestampText = result.timestampText
-                        targetRecording.detectedLanguage = result.detectedLanguage
-                        targetRecording.duration = result.duration
-                        targetRecording.updatedAt = Date()
-                    }
                 }
             } catch {
                 print("补转录失败: \(error)")
             }
         }
+    }
+
+    private func performDiarization() {
+        guard let audioPath = recording.audioPath else { return }
+        isDiarizing = true
+        diarizationProgress = 0
+        diarizingRecordingId = recording.id
+        let fullPath = AudioFileManager.shared.fullPath(for: audioPath)
+        let targetRecording = recording
+        let speakers = Int32(expectedSpeakers)
+
+        Task {
+            defer {
+                Task { @MainActor in
+                    self.isDiarizing = false
+                    self.diarizationProgress = 0
+                    self.diarizingRecordingId = nil
+                }
+            }
+            do {
+                if let service = appState.nativeASRService {
+                    let result = try await service.diarize(
+                        audioPath: fullPath,
+                        numSpeakers: speakers,
+                        onProgress: { progress in
+                            Task { @MainActor in
+                                self.diarizationProgress = progress
+                            }
+                        }
+                    )
+                    await MainActor.run {
+                        targetRecording.diarizedText = result.text
+                        targetRecording.diarizedSpeakerCount = Int(result.numSpeakers)
+                        targetRecording.updatedAt = Date()
+                    }
+                }
+            } catch {
+                print("说话人分离失败: \(error)")
+            }
+        }
+    }
+}
+
+// MARK: - Diarized Text View
+
+/// 带说话人标签的文本展示组件
+struct DiarizedTextView: View {
+    let text: String
+
+    // 说话人颜色
+    private static let speakerColors: [Color] = [
+        .blue, .orange, .green, .purple, .pink, .teal, .indigo, .brown
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                if let parsed = parseSpeakerLine(line) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(parsed.label)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(colorForSpeaker(parsed.speakerIndex))
+                            .frame(width: 60, alignment: .trailing)
+                        Text(parsed.content)
+                            .font(.body)
+                            .lineSpacing(4)
+                            .textSelection(.enabled)
+                    }
+                } else if !line.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Text(line)
+                        .font(.body)
+                        .lineSpacing(4)
+                        .textSelection(.enabled)
+                        .padding(.leading, 68)
+                }
+            }
+        }
+    }
+
+    private var lines: [String] {
+        text.components(separatedBy: "\n")
+    }
+
+    private struct ParsedLine {
+        let label: String
+        let speakerIndex: Int
+        let content: String
+    }
+
+    private func parseSpeakerLine(_ line: String) -> ParsedLine? {
+        // 匹配 "说话人N: 内容"
+        let prefix = "说话人"
+        guard line.hasPrefix(prefix) else { return nil }
+
+        // 找到 ": " 分隔符
+        guard let colonRange = line.range(of: ": ") else { return nil }
+
+        let label = String(line[line.startIndex..<colonRange.lowerBound])
+        let content = String(line[colonRange.upperBound...])
+
+        // 从 label 提取数字（"说话人1" → 1）
+        let numStr = label.dropFirst(prefix.count)
+        let idx = Int(numStr) ?? 1
+
+        return ParsedLine(label: label, speakerIndex: idx - 1, content: content)
+    }
+
+    private func colorForSpeaker(_ index: Int) -> Color {
+        Self.speakerColors[index % Self.speakerColors.count]
     }
 }
 

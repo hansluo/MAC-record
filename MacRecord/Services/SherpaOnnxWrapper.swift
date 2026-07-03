@@ -2,13 +2,30 @@ import Foundation
 
 // MARK: - Offline Recognizer Config
 
-/// SenseVoice 离线识别器的 Swift 配置
-struct SherpaOnnxOfflineRecognizerSwiftConfig {
-    var senseVoiceModelPath: String = ""
-    var tokensPath: String = ""
-    var language: String = "auto"
-    var useITN: Bool = true
-    var numThreads: Int32 = 2
+/// 通用离线识别器配置，支持 SenseVoice 和 Qwen3-ASR
+enum SherpaOnnxModelConfig {
+    case senseVoice(SenseVoiceConfig)
+    case qwen3ASR(Qwen3ASRConfig)
+
+    struct SenseVoiceConfig {
+        var modelPath: String
+        var tokensPath: String
+        var language: String = "auto"
+        var useITN: Bool = true
+    }
+
+    struct Qwen3ASRConfig {
+        var convFrontendPath: String
+        var encoderPath: String
+        var decoderPath: String
+        var tokenizerPath: String
+    }
+}
+
+/// 通用识别器配置参数
+struct SherpaOnnxRecognizerConfig {
+    var modelConfig: SherpaOnnxModelConfig
+    var numThreads: Int32 = 4
     var sampleRate: Int32 = 16000
     var featureDim: Int32 = 80
     var decodingMethod: String = "greedy_search"
@@ -18,38 +35,29 @@ struct SherpaOnnxOfflineRecognizerSwiftConfig {
 
 // MARK: - Offline Recognizer
 
-/// sherpa-onnx 离线语音识别器的 Swift 封装
-/// 使用 OpaquePointer 来处理 C API 中的不透明类型
+/// sherpa-onnx 离线语音识别器的 Swift 封装（支持多模型族）
 class SherpaOnnxOfflineRecognizerWrapper {
-    private let recognizer: OpaquePointer  // const SherpaOnnxOfflineRecognizer*
+    private let recognizer: OpaquePointer
 
-    init?(config: SherpaOnnxOfflineRecognizerSwiftConfig) {
+    /// 使用统一配置创建（推荐）
+    init?(config: SherpaOnnxRecognizerConfig) {
         var cConfig = SherpaOnnxOfflineRecognizerConfig()
         memset(&cConfig, 0, MemoryLayout<SherpaOnnxOfflineRecognizerConfig>.size)
 
         cConfig.feat_config.sample_rate = config.sampleRate
         cConfig.feat_config.feature_dim = config.featureDim
 
-        // 使用嵌套 withCString 确保字符串生命周期
-        let ptr: OpaquePointer? = config.senseVoiceModelPath.withCString { modelPath in
-            config.tokensPath.withCString { tokensPath in
-                config.language.withCString { language in
-                    config.decodingMethod.withCString { decodingMethod in
-                        config.provider.withCString { provider in
-                            cConfig.model_config.sense_voice.model = modelPath
-                            cConfig.model_config.sense_voice.language = language
-                            cConfig.model_config.sense_voice.use_itn = config.useITN ? 1 : 0
-                            cConfig.model_config.tokens = tokensPath
-                            cConfig.model_config.num_threads = config.numThreads
-                            cConfig.model_config.debug = config.debug
-                            cConfig.model_config.provider = provider
-                            cConfig.decoding_method = decodingMethod
+        let ptr: OpaquePointer?
 
-                            return SherpaOnnxCreateOfflineRecognizer(&cConfig)
-                        }
-                    }
-                }
-            }
+        switch config.modelConfig {
+        case .senseVoice(let sv):
+            ptr = Self.createSenseVoice(
+                cConfig: &cConfig, svConfig: sv, config: config
+            )
+        case .qwen3ASR(let qwen):
+            ptr = Self.createQwen3ASR(
+                cConfig: &cConfig, qwenConfig: qwen, config: config
+            )
         }
 
         guard let validPtr = ptr else {
@@ -64,6 +72,69 @@ class SherpaOnnxOfflineRecognizerWrapper {
         SherpaOnnxDestroyOfflineRecognizer(recognizer)
         print("[SherpaOnnx] OfflineRecognizer 已销毁")
     }
+
+    // MARK: - 创建方法
+
+    private static func createSenseVoice(
+        cConfig: inout SherpaOnnxOfflineRecognizerConfig,
+        svConfig: SherpaOnnxModelConfig.SenseVoiceConfig,
+        config: SherpaOnnxRecognizerConfig
+    ) -> OpaquePointer? {
+        svConfig.modelPath.withCString { modelPath in
+            svConfig.tokensPath.withCString { tokensPath in
+                svConfig.language.withCString { language in
+                    config.decodingMethod.withCString { decodingMethod in
+                        config.provider.withCString { provider in
+                            cConfig.model_config.sense_voice.model = modelPath
+                            cConfig.model_config.sense_voice.language = language
+                            cConfig.model_config.sense_voice.use_itn = svConfig.useITN ? 1 : 0
+                            cConfig.model_config.tokens = tokensPath
+                            cConfig.model_config.num_threads = config.numThreads
+                            cConfig.model_config.debug = config.debug
+                            cConfig.model_config.provider = provider
+                            cConfig.decoding_method = decodingMethod
+                            return SherpaOnnxCreateOfflineRecognizer(&cConfig)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static func createQwen3ASR(
+        cConfig: inout SherpaOnnxOfflineRecognizerConfig,
+        qwenConfig: SherpaOnnxModelConfig.Qwen3ASRConfig,
+        config: SherpaOnnxRecognizerConfig
+    ) -> OpaquePointer? {
+        qwenConfig.convFrontendPath.withCString { convFrontend in
+            qwenConfig.encoderPath.withCString { encoder in
+                qwenConfig.decoderPath.withCString { decoder in
+                    qwenConfig.tokenizerPath.withCString { tokenizer in
+                        config.decodingMethod.withCString { decodingMethod in
+                            config.provider.withCString { provider in
+                                cConfig.model_config.qwen3_asr.conv_frontend = convFrontend
+                                cConfig.model_config.qwen3_asr.encoder = encoder
+                                cConfig.model_config.qwen3_asr.decoder = decoder
+                                cConfig.model_config.qwen3_asr.tokenizer = tokenizer
+                                cConfig.model_config.qwen3_asr.max_total_len = 4096
+                                cConfig.model_config.qwen3_asr.max_new_tokens = 1024
+                                cConfig.model_config.qwen3_asr.temperature = 0.0
+                                cConfig.model_config.qwen3_asr.top_p = 1.0
+                                cConfig.model_config.qwen3_asr.seed = 0
+                                cConfig.model_config.num_threads = config.numThreads
+                                cConfig.model_config.debug = config.debug
+                                cConfig.model_config.provider = provider
+                                cConfig.decoding_method = decodingMethod
+                                return SherpaOnnxCreateOfflineRecognizer(&cConfig)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - 识别
 
     /// 识别 PCM float 数组（整段离线识别）
     func recognize(samples: [Float], sampleRate: Int32 = 16000) -> SherpaOnnxRecognitionResult {
@@ -83,7 +154,6 @@ class SherpaOnnxOfflineRecognizerWrapper {
 
         SherpaOnnxDecodeOfflineStream(recognizer, stream)
 
-        // 使用 JSON 方式获取结果（更可靠）
         guard let jsonCStr = SherpaOnnxGetOfflineStreamResultAsJson(stream) else {
             return SherpaOnnxRecognitionResult(text: "", lang: nil, emotion: nil, event: nil)
         }

@@ -374,14 +374,16 @@ struct ContentView: View {
         ToolbarItem(placement: .status) {
             // ★ ASR 模型状态栏 — 点击可切换模型
             Menu {
-                ForEach(ASREngineType.allCases) { engine in
-                    Button {
-                        Task { await appState.switchASREngine(to: engine) }
-                    } label: {
-                        HStack {
-                            Text(engine.displayName)
-                            if appState.asrConfigStore.selectedEngine == engine {
-                                Image(systemName: "checkmark")
+                ForEach(ModelRegistry.allModels, id: \.id) { modelInfo in
+                    if appState.modelDownloadManager.isDownloaded(modelInfo.id) {
+                        Button {
+                            Task { await appState.switchASRModel(to: modelInfo.id) }
+                        } label: {
+                            HStack {
+                                Text(modelInfo.displayName)
+                                if appState.asrConfigStore.selectedModelId == modelInfo.id {
+                                    Image(systemName: "checkmark")
+                                }
                             }
                         }
                     }
@@ -391,7 +393,7 @@ struct ContentView: View {
                     Circle()
                         .fill(appState.isModelReady ? .green : .orange)
                         .frame(width: 8, height: 8)
-                    Image(systemName: appState.asrConfigStore.selectedEngine.iconName)
+                    Image(systemName: appState.asrConfigStore.selectedModel.iconName)
                         .font(.caption)
                     Text(appState.modelStatus)
                         .font(.caption)
@@ -461,22 +463,7 @@ struct ContentView: View {
             recording.audioPath = storedPath
         }
 
-        if let bridge = appState.asrBridge, appState.isModelReady,
-           appState.asrConfigStore.selectedEngine == .senseVoice {
-            importProgress = "正在转录…"
-            do {
-                let result = try await bridge.transcribeFile(audioPath: url.path, language: "auto")
-                recording.plainText = result.plainText
-                recording.timestampText = result.timestampText
-                recording.detectedLanguage = result.detectedLanguage
-                recording.duration = result.duration
-                recording.updatedAt = Date()
-            } catch {
-                importProgress = "转录失败: \(error.localizedDescription)"
-                try? await Task.sleep(for: .seconds(2))
-            }
-        } else if let service = appState.nativeASRService, appState.isModelReady,
-                  appState.asrConfigStore.selectedEngine == .senseVoiceNative {
+        if let service = appState.nativeASRService, appState.isModelReady {
             importProgress = "正在转录…"
             do {
                 let result = try await service.transcribeFile(audioPath: url.path, language: "auto")

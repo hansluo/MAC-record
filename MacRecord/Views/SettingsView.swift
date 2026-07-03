@@ -30,310 +30,64 @@ struct SettingsView: View {
 
 struct ASRModelTab: View {
     @EnvironmentObject private var appState: AppState
-    @StateObject private var installer = PythonEnvInstaller()
-    @State private var showInstallSheet = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("模型")
+                Text("语音识别模型")
                     .font(.title2.weight(.semibold))
                     .padding(.bottom, 4)
 
-                ForEach(ASREngineType.allCases) { engine in
+                Text("选择一个模型用于语音识别。内置模型开箱即用，其他模型需要下载。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                ForEach(ModelRegistry.allModels, id: \.id) { modelInfo in
                     ASRModelCard(
-                        engine: engine,
-                        isSelected: appState.asrConfigStore.selectedEngine == engine,
-                        isDownloaded: isDownloaded(engine),
-                        isInstalling: engine == .senseVoice && installer.state == .installing,
+                        modelInfo: modelInfo,
+                        isSelected: appState.asrConfigStore.selectedModelId == modelInfo.id,
+                        downloadState: appState.modelDownloadManager.downloads[modelInfo.id] ?? .idle,
+                        isDownloaded: appState.modelDownloadManager.isDownloaded(modelInfo.id),
                         onSelect: {
-                            selectEngine(engine)
+                            Task { await appState.switchASRModel(to: modelInfo.id) }
                         },
                         onDownload: {
-                            showInstallSheet = true
+                            appState.modelDownloadManager.download(modelId: modelInfo.id)
+                        },
+                        onCancel: {
+                            appState.modelDownloadManager.cancelDownload(modelId: modelInfo.id)
+                        },
+                        onDelete: {
+                            appState.modelDownloadManager.deleteModel(modelId: modelInfo.id)
+                            // 如果删除的是当前选中模型，切回内置模型
+                            if appState.asrConfigStore.selectedModelId == modelInfo.id {
+                                Task { await appState.switchASRModel(to: .senseVoiceInt8) }
+                            }
                         }
                     )
                 }
+
+                // 模型存储路径
+                Text("模型存储路径: \(ModelRegistry.modelsDirectory.path)")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 4)
             }
             .padding(24)
-        }
-        .sheet(isPresented: $showInstallSheet) {
-            PythonInstallView(installer: installer) {
-                // 安装完成后自动切换
-                showInstallSheet = false
-                Task { await appState.switchASREngine(to: .senseVoice) }
-            }
-            .frame(minWidth: 520, minHeight: 400)
-        }
-    }
-
-    private func isDownloaded(_ engine: ASREngineType) -> Bool {
-        switch engine {
-        case .senseVoice:
-            return appState.asrConfigStore.pythonEnvDir != nil
-        case .senseVoiceNative:
-            return true
-        }
-    }
-
-    private func selectEngine(_ engine: ASREngineType) {
-        if engine == .senseVoice && appState.asrConfigStore.pythonEnvDir == nil {
-            // Python 环境不存在，弹出安装引导
-            showInstallSheet = true
-        } else {
-            Task { await appState.switchASREngine(to: engine) }
-        }
-    }
-}
-
-/// Python 环境安装引导视图
-struct PythonInstallView: View {
-    @ObservedObject var installer: PythonEnvInstaller
-    @Environment(\.dismiss) private var dismiss
-    let onComplete: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // 头部
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("安装 SenseVoice (Python) 环境")
-                        .font(.title3.weight(.semibold))
-                    Text("需要下载约 1GB 的 Python 依赖")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
-
-            Divider()
-
-            // 内容
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    switch installer.state {
-                    case .idle:
-                        idleView
-                    case .checking, .installing:
-                        installingView
-                    case .completed:
-                        completedView
-                    case .failed(let error):
-                        failedView(error: error)
-                    }
-                }
-                .padding(20)
-            }
-
-            Divider()
-
-            // 底部按钮
-            HStack {
-                Spacer()
-                switch installer.state {
-                case .idle:
-                    Button("取消") { dismiss() }
-                        .buttonStyle(.bordered)
-                    Button("开始安装") {
-                        installer.startInstall()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(installer.systemPythonPath == nil)
-                case .installing, .checking:
-                    Button("取消安装") {
-                        installer.cancelInstall()
-                    }
-                    .buttonStyle(.bordered)
-                case .completed:
-                    Button("完成并切换") {
-                        onComplete()
-                    }
-                    .buttonStyle(.borderedProminent)
-                case .failed:
-                    Button("关闭") { dismiss() }
-                        .buttonStyle(.bordered)
-                    Button("重试") {
-                        installer.startInstall()
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-        }
-    }
-
-    @ViewBuilder
-    private var idleView: some View {
-        // 前置检查
-        VStack(alignment: .leading, spacing: 12) {
-            Label("安装前检查", systemImage: "checklist")
-                .font(.headline)
-
-            HStack(spacing: 8) {
-                if installer.systemPythonPath != nil {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                    Text("系统 Python3: \(installer.systemPythonPath!)")
-                        .font(.caption)
-                } else {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.red)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("未检测到系统 Python3")
-                            .font(.caption.weight(.medium))
-                        Text("请先安装 Python3，推荐: brew install python3")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-
-        Divider()
-
-        VStack(alignment: .leading, spacing: 8) {
-            Label("安装内容", systemImage: "shippingbox")
-                .font(.headline)
-
-            VStack(alignment: .leading, spacing: 4) {
-                installItem("Python 虚拟环境", "~5 MB")
-                installItem("FunASR + 模型", "~800 MB")
-                installItem("PyTorch", "~200 MB")
-                installItem("asr_server.py", "~10 KB")
-            }
-            .padding(.leading, 4)
-        }
-
-        Text("安装路径: \(ASRConfigStore.pythonEnvPath)")
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
-    }
-
-    @ViewBuilder
-    private func installItem(_ name: String, _ size: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "cube.box")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
-            Text(name)
-                .font(.caption)
-            Spacer()
-            Text(size)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-        }
-    }
-
-    @ViewBuilder
-    private var installingView: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                ProgressView()
-                    .scaleEffect(0.8)
-                Text(installer.progress)
-                    .font(.subheadline.weight(.medium))
-            }
-
-            // 详细日志
-            if !installer.detailLog.isEmpty {
-                ScrollView {
-                    Text(installer.detailLog)
-                        .font(.system(.caption, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                }
-                .frame(maxHeight: 200)
-                .padding(8)
-                .background(Color(nsColor: .textBackgroundColor))
-                .cornerRadius(6)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color(nsColor: .separatorColor).opacity(0.3))
-                )
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var completedView: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.title)
-                    .foregroundStyle(.green)
-                Text("安装成功！")
-                    .font(.headline)
-            }
-
-            Text("SenseVoice (Python) 环境已就绪，点击「完成并切换」即可使用。")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            if !installer.detailLog.isEmpty {
-                DisclosureGroup("安装日志") {
-                    ScrollView {
-                        Text(installer.detailLog)
-                            .font(.system(.caption2, design: .monospaced))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
-                    }
-                    .frame(maxHeight: 150)
-                }
-                .font(.caption)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func failedView(error: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title)
-                    .foregroundStyle(.red)
-                Text("安装失败")
-                    .font(.headline)
-            }
-
-            Text(error)
-                .font(.caption)
-                .foregroundStyle(.red)
-                .textSelection(.enabled)
-
-            if !installer.detailLog.isEmpty {
-                DisclosureGroup("安装日志") {
-                    ScrollView {
-                        Text(installer.detailLog)
-                            .font(.system(.caption2, design: .monospaced))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
-                    }
-                    .frame(maxHeight: 150)
-                }
-                .font(.caption)
-            }
         }
     }
 }
 
 /// ASR 模型卡片 — Flow 风格
 struct ASRModelCard: View {
-    let engine: ASREngineType
+    let modelInfo: ASRModelInfo
     let isSelected: Bool
+    let downloadState: ModelDownloadManager.DownloadState
     let isDownloaded: Bool
-    var isInstalling: Bool = false
     let onSelect: () -> Void
     let onDownload: () -> Void
+    let onCancel: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
         HStack(spacing: 14) {
@@ -342,26 +96,37 @@ struct ASRModelCard: View {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(iconBackground)
                     .frame(width: 52, height: 52)
-                Image(systemName: engine.iconName)
+                Image(systemName: modelInfo.iconName)
                     .font(.title2)
                     .foregroundStyle(.white)
             }
 
             // 信息
             VStack(alignment: .leading, spacing: 4) {
-                Text(engine.displayName)
-                    .font(.headline)
+                HStack(spacing: 6) {
+                    Text(modelInfo.displayName)
+                        .font(.headline)
+                    if modelInfo.isBuiltin {
+                        Text("内置")
+                            .font(.caption2)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(.green.opacity(0.15))
+                            .foregroundStyle(.green)
+                            .cornerRadius(3)
+                    }
+                }
 
-                Text(engine.description)
+                Text(modelInfo.description)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
 
                 HStack(spacing: 6) {
-                    ForEach(engine.tags, id: \.0) { tag in
+                    ForEach(modelInfo.tags, id: \.0) { tag in
                         TagBadge(text: tag.0, color: tag.1)
                     }
-                    Text("📦 \(engine.modelSize)")
+                    Text(modelInfo.modelSize)
                         .font(.caption2)
                         .foregroundStyle(.pink)
                 }
@@ -370,28 +135,7 @@ struct ASRModelCard: View {
             Spacer()
 
             // 操作按钮
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(.green)
-            } else if isInstalling {
-                ProgressView()
-                    .scaleEffect(0.8)
-            } else if isDownloaded {
-                Button("选择") {
-                    onSelect()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            } else {
-                Button {
-                    onDownload()
-                } label: {
-                    Label("安装", systemImage: "arrow.down.circle.fill")
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-            }
+            actionButton
         }
         .padding(14)
         .background(
@@ -400,14 +144,96 @@ struct ASRModelCard: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(isSelected ? Color.accentColor.opacity(0.3) : Color(nsColor: .separatorColor).opacity(0.3), lineWidth: isSelected ? 2 : 1)
+                .stroke(
+                    isSelected ? Color.accentColor.opacity(0.3) : Color(nsColor: .separatorColor).opacity(0.3),
+                    lineWidth: isSelected ? 2 : 1
+                )
         )
     }
 
+    @ViewBuilder
+    private var actionButton: some View {
+        if isSelected {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title2)
+                .foregroundStyle(.green)
+        } else {
+            switch downloadState {
+            case .downloading(let progress):
+                VStack(spacing: 4) {
+                    CircularProgressView(progress: progress)
+                        .frame(width: 28, height: 28)
+                    Button("取消") { onCancel() }
+                        .font(.caption2)
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                }
+            case .extracting:
+                VStack(spacing: 4) {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                    Text("安装中")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            case .failed(let msg):
+                VStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                    Button("重试") { onDownload() }
+                        .font(.caption2)
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                }
+                .help(msg)
+            default:
+                if isDownloaded {
+                    HStack(spacing: 6) {
+                        Button("选择") { onSelect() }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        if !modelInfo.isBuiltin {
+                            Button(role: .destructive) { onDelete() } label: {
+                                Image(systemName: "trash")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                } else {
+                    Button { onDownload() } label: {
+                        Label("下载", systemImage: "arrow.down.circle.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                }
+            }
+        }
+    }
+
     private var iconBackground: Color {
-        switch engine {
-        case .senseVoice: return .blue
-        case .senseVoiceNative: return .green
+        switch modelInfo.family {
+        case .senseVoice: return modelInfo.id == .senseVoiceInt8 ? .green : .blue
+        case .qwen3ASR: return .purple
+        case .appleSpeech: return .gray
+        }
+    }
+}
+
+/// 圆形进度指示器
+struct CircularProgressView: View {
+    let progress: Double
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.secondary.opacity(0.2), lineWidth: 3)
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Text("\(Int(progress * 100))")
+                .font(.system(size: 8, weight: .bold))
         }
     }
 }
@@ -453,7 +279,6 @@ struct LLMModelTab: View {
     @State private var formKind = "remote"
     @State private var showAPIKey = false
 
-    // 本地模型检测
     @State private var isDetecting = false
     @State private var detectedModels: [LLMService.DetectedModel] = []
     @State private var showDetectResult = false
@@ -537,7 +362,6 @@ struct LLMModelTab: View {
                     .disabled(isDetecting)
                 }
 
-                // 自定义端口输入
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 8) {
                         TextField("端口，如 1235", text: $customPort)
@@ -558,7 +382,6 @@ struct LLMModelTab: View {
                         .foregroundStyle(.tertiary)
                 }
 
-                // 检测结果展示
                 if showDetectResult {
                     detectResultView
                 }
@@ -754,7 +577,6 @@ struct LLMModelTab: View {
 
                             Spacer()
 
-                            // 检查是否已添加
                             if appState.llmConfigStore.models.contains(where: { $0.modelName == model.name && $0.apiURL == model.apiURL }) {
                                 Text("已添加")
                                     .font(.caption2)
@@ -828,11 +650,11 @@ struct LLMModelTab: View {
         let id = "local_\(model.name.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: ":", with: "_"))"
         let emoji: String
         if model.provider.contains("Ollama") {
-            emoji = "\u{1F430}"  // 🐰
+            emoji = "\u{1F430}"
         } else if model.provider.contains("oMLX") {
-            emoji = "\u{26A1}"   // ⚡
+            emoji = "\u{26A1}"
         } else {
-            emoji = "\u{1F4BB}"  // 💻
+            emoji = "\u{1F4BB}"
         }
         let config = LLMModelConfig(
             id: id,
@@ -855,7 +677,6 @@ struct PromptTab: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                // 纪要 Prompt
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("默认纪要 Prompt")
@@ -884,7 +705,6 @@ struct PromptTab: View {
 
                 Divider()
 
-                // ASR 纠错 Prompt
                 VStack(alignment: .leading, spacing: 8) {
                     Text("语音输入纠错 Prompt")
                         .font(.headline)

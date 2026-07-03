@@ -18,16 +18,10 @@ extension AppState {
         let sessionId = UUID()
         recordingStartTime = Date()
 
-        let engine = asrConfigStore.selectedEngine
         let source = audioSource
 
         if source == .systemAudio {
-            // ★ Self 记录：系统音频捕获
-            if engine == .senseVoice, let bridge = asrBridge {
-                Task.detached {
-                    try? await bridge.realtimeStart(sessionId: sessionId.uuidString, language: "auto")
-                }
-            } else if engine == .senseVoiceNative, let service = nativeASRService {
+            if let service = nativeASRService {
                 Task.detached {
                     await service.realtimeStart(sessionId: sessionId.uuidString, language: "auto")
                 }
@@ -48,19 +42,13 @@ extension AppState {
                 sysRecorder.errorMessage = error.localizedDescription
                 systemAudioRecorder = nil
                 recordingMode = .idle
-                // 提示用户
                 modelStatus = "❌ Self 记录启动失败: \(error.localizedDescription)"
             }
 
         } else {
-            // ★ 麦克风录音：SenseVoice 原生 或 Python
-            if engine == .senseVoiceNative, let service = nativeASRService {
+            if let service = nativeASRService {
                 Task.detached {
                     await service.realtimeStart(sessionId: sessionId.uuidString, language: "auto")
-                }
-            } else if engine == .senseVoice, let bridge = asrBridge {
-                Task.detached {
-                    try? await bridge.realtimeStart(sessionId: sessionId.uuidString, language: "auto")
                 }
             }
 
@@ -83,7 +71,7 @@ extension AppState {
 
     func togglePauseRecording() async {
         if audioSource == .systemAudio {
-            return  // 系统音频暂不支持暂停
+            return
         }
         guard let recorder = audioRecorder,
               case .normalRecording(let sid, let paused) = recordingMode else { return }
@@ -100,7 +88,6 @@ extension AppState {
         guard case .normalRecording(let sessionId, _) = recordingMode else { return }
 
         let source = audioSource
-        let engine = asrConfigStore.selectedEngine
         var recordingURL: URL?
         var duration: TimeInterval = 0
 
@@ -122,7 +109,6 @@ extension AppState {
 
         recordingMode = .idle
 
-        // 自动命名
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.dateFormat = "M月d日 HH:mm"
@@ -131,7 +117,6 @@ extension AppState {
 
         let sid = sessionId.uuidString
 
-        // 立刻创建记录
         NotificationCenter.default.post(
             name: .recordingCompleted,
             object: nil,
@@ -146,68 +131,35 @@ extension AppState {
             ]
         )
 
-        // SenseVoice (Python)：后台 finalize
-        if engine == .senseVoice {
-            let bridge = asrBridge
-            Task.detached {
-                guard let bridge = bridge else { return }
-                try? await Task.sleep(for: .milliseconds(500))
-                do {
-                    let result = try await bridge.realtimeStop(sessionId: sid)
-                    await MainActor.run {
-                        NotificationCenter.default.post(
-                            name: .recordingTextReady,
-                            object: nil,
-                            userInfo: [
-                                "sessionId": sessionId,
-                                "plainText": result.plainText,
-                                "timestampText": result.timestampText,
-                                "detectedLanguage": result.detectedLanguage ?? "",
-                            ]
-                        )
-                    }
-                } catch {
-                    print("[ASR] finalize 失败: \(error)")
+        // 后台 finalize
+        let service = nativeASRService
+        Task.detached {
+            guard let service = service else { return }
+            do {
+                let result = try await service.realtimeStop(sessionId: sid)
+                await MainActor.run {
+                    NotificationCenter.default.post(
+                        name: .recordingTextReady,
+                        object: nil,
+                        userInfo: [
+                            "sessionId": sessionId,
+                            "plainText": result.plainText,
+                            "timestampText": "",
+                            "detectedLanguage": result.detectedLanguage ?? "",
+                        ]
+                    )
                 }
-            }
-        }
-
-        // SenseVoice (原生)：后台 finalize（无需额外等待，直接 stop）
-        if engine == .senseVoiceNative {
-            let service = nativeASRService
-            Task.detached {
-                guard let service = service else { return }
-                do {
-                    let result = try await service.realtimeStop(sessionId: sid)
-                    await MainActor.run {
-                        NotificationCenter.default.post(
-                            name: .recordingTextReady,
-                            object: nil,
-                            userInfo: [
-                                "sessionId": sessionId,
-                                "plainText": result.plainText,
-                                "timestampText": "",
-                                "detectedLanguage": result.detectedLanguage ?? "",
-                            ]
-                        )
-                    }
-                } catch {
-                    print("[NativeASR] finalize 失败: \(error)")
-                }
+            } catch {
+                print("[NativeASR] finalize 失败: \(error)")
             }
         }
     }
 
     private func routeBufferToASR(buffer: AVAudioPCMBuffer, sessionId: UUID) async {
-        let engine = asrConfigStore.selectedEngine
         guard let channelData = buffer.floatChannelData?[0] else { return }
         let count = Int(buffer.frameLength)
 
-        if engine == .senseVoice, let bridge = asrBridge {
-            let data = Data(bytes: channelData, count: count * MemoryLayout<Float>.size)
-            let base64 = data.base64EncodedString()
-            _ = try? await bridge.realtimeFeed(sessionId: sessionId.uuidString, audioBase64: base64)
-        } else if engine == .senseVoiceNative, let service = nativeASRService {
+        if let service = nativeASRService {
             let samples = Array(UnsafeBufferPointer(start: channelData, count: count))
             _ = await service.realtimeFeed(sessionId: sessionId.uuidString, samples: samples)
         }

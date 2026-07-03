@@ -149,25 +149,15 @@ class RecordingViewModel: ObservableObject {
                 }
 
                 // ASR 文本
-                let engine = appState.asrConfigStore.selectedEngine
-                if engine == .senseVoiceNative {
-                    if let service = appState.nativeASRService,
-                       let sessionId = appState.currentSessionId {
-                        let snapshot = await service.getRealtimeSnapshot(sessionId: sessionId.uuidString)
-                        if !snapshot.plainText.isEmpty {
-                            self.liveText = snapshot.plainText
-                        }
-                    }
-                } else if engine == .senseVoice {
-                    if let bridge = appState.asrBridge,
-                       let sessionId = appState.currentSessionId {
-                        if let snapshot = try? await bridge.getRealtimeSnapshot(sessionId: sessionId.uuidString) {
-                            self.liveText = snapshot.plainText
-                        }
+                if let service = appState.nativeASRService,
+                   let sessionId = appState.currentSessionId {
+                    let snapshot = await service.getRealtimeSnapshot(sessionId: sessionId.uuidString)
+                    if !snapshot.plainText.isEmpty {
+                        self.liveText = snapshot.plainText
                     }
                 }
 
-                let interval: Duration = engine == .senseVoiceNative ? .milliseconds(300) : .seconds(1)
+                let interval: Duration = .milliseconds(300)
                 try? await Task.sleep(for: interval)
             }
         }

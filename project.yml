@@ -18,6 +18,8 @@ targets:
         buildPhase: resources
       - path: MacRecord/Resources/vad
         buildPhase: resources
+      - path: MacRecord/Resources/speaker-diarization
+        buildPhase: resources
     dependencies:
       - framework: Frameworks/sherpa-onnx.xcframework
         embed: false

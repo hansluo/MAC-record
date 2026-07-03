@@ -72,7 +72,7 @@ class LLMService {
         if !apiKey.isEmpty {
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
-        request.timeoutInterval = 300
+        request.timeoutInterval = 600
 
         let payload: [String: Any] = [
             "model": modelName,
@@ -81,6 +81,7 @@ class LLMService {
             ],
             "temperature": temperature,
             "max_tokens": maxTokens,
+            "chat_template_kwargs": ["enable_thinking": false],
         ]
 
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
@@ -138,6 +139,7 @@ class LLMService {
             ],
             "temperature": temperature,
             "max_tokens": maxTokens,
+            "chat_template_kwargs": ["enable_thinking": false],
         ]
 
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
@@ -162,6 +164,66 @@ class LLMService {
         }
 
         return content.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - Context Window 探测
+
+    /// 从 API 的 /v1/models 接口探测模型的 context_length
+    /// 返回探测到的值，探测失败返回 nil
+    func fetchContextWindow(apiURL: String, apiKey: String, modelName: String) async -> Int? {
+        // 从 chat/completions URL 推导出 models URL
+        let modelsURL: String
+        let normalized = Self.normalizeAPIURL(apiURL)
+        if let range = normalized.range(of: "/chat/completions") {
+            modelsURL = String(normalized[normalized.startIndex..<range.lowerBound]) + "/models"
+        } else if let range = normalized.range(of: "/v1", options: .backwards) {
+            modelsURL = String(normalized[normalized.startIndex...range.upperBound]) + "/models"
+        } else {
+            // 无法推导，尝试在 base URL 后加 /v1/models
+            if let url = URL(string: normalized), let scheme = url.scheme, let host = url.host {
+                let port = url.port.map { ":\($0)" } ?? ""
+                modelsURL = "\(scheme)://\(host)\(port)/v1/models"
+            } else {
+                return nil
+            }
+        }
+
+        guard let url = URL(string: modelsURL) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        if !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let models = json["data"] as? [[String: Any]] else { return nil }
+
+            // 查找匹配的模型
+            for model in models {
+                guard let id = model["id"] as? String else { continue }
+                if id == modelName || id.contains(modelName) || modelName.contains(id) {
+                    // 不同 API 返回的字段名可能不同
+                    if let ctx = model["context_length"] as? Int, ctx > 0 { return ctx }
+                    if let ctx = model["context_window"] as? Int, ctx > 0 { return ctx }
+                    if let ctx = model["max_model_len"] as? Int, ctx > 0 { return ctx }
+                }
+            }
+
+            // 没找到精确匹配，取第一个有 context_length 的
+            for model in models {
+                if let ctx = model["context_length"] as? Int, ctx > 0 { return ctx }
+                if let ctx = model["context_window"] as? Int, ctx > 0 { return ctx }
+                if let ctx = model["max_model_len"] as? Int, ctx > 0 { return ctx }
+            }
+
+            return nil
+        } catch {
+            return nil
+        }
     }
 
     /// 测试连接

@@ -5,8 +5,8 @@ class SummaryGenerator {
     private let llmService = LLMService()
     private let configStore: LLMConfigStore
 
-    /// 默认分段阈值（字符数）— 当模型未设置 contextWindow 时使用
-    private let defaultChunkThreshold = 32000
+    /// 保守默认 context window（探测失败时使用）
+    private let defaultContextWindow = 32768
 
     /// 进度回调：(当前段, 总段数, 阶段描述)
     var onProgress: ((Int, Int, String) -> Void)?
@@ -15,33 +15,49 @@ class SummaryGenerator {
         self.configStore = configStore
     }
 
-    /// 根据模型 contextWindow 动态计算最大输出 token
-    /// 本地小模型（32K）给更大的输出空间，避免截断丢失内容
-    private func computeMaxTokens(config: LLMModelConfig) -> Int {
-        let ctx = config.contextWindow
-        if ctx <= 0 { return 8192 }
-        if ctx <= 32768 {
-            // 本地小模型：输出上限设为 context 的 40%，至少 4096
-            return max(4096, min(ctx * 2 / 5, 12288))
+    /// 获取有效的 context window（优先探测，其次用户设置，最后保守默认）
+    private func resolveContextWindow(config: LLMModelConfig, apiKey: String) async -> Int {
+        // 1. 用户已设置
+        if config.contextWindow > 0 {
+            return config.contextWindow
         }
-        // 远程大模型：较大输出空间
-        return min(16384, ctx / 4)
+
+        // 2. 尝试从 API 探测
+        if let detected = await llmService.fetchContextWindow(
+            apiURL: config.apiURL, apiKey: apiKey, modelName: config.modelName
+        ) {
+            print("[SummaryGenerator] 探测到 contextWindow: \(detected)")
+            // 缓存到配置（下次不用再探测）
+            await MainActor.run {
+                if var models = Optional(configStore.models),
+                   let idx = models.firstIndex(where: { $0.id == config.id }) {
+                    models[idx].contextWindow = detected
+                    configStore.models = models
+                    configStore.save()
+                }
+            }
+            return detected
+        }
+
+        // 3. 保守默认
+        print("[SummaryGenerator] 无法探测 contextWindow，使用默认值 \(defaultContextWindow)")
+        return defaultContextWindow
     }
 
-    /// 根据模型 contextWindow 计算分段阈值（字符数）
-    /// 中文约 1.5-2 token/字，prompt 预留 2000 token，输出预留 maxTokens
-    private func computeChunkThreshold(config: LLMModelConfig) -> Int {
-        let maxTokens = computeMaxTokens(config: config)
-        guard config.contextWindow > 0 else { return defaultChunkThreshold }
-        let availableInputTokens = config.contextWindow - maxTokens - 2000
-        guard availableInputTokens > 1000 else { return 4000 }
-        let maxChars = Int(Double(availableInputTokens) / 1.5)
-        return min(maxChars, defaultChunkThreshold)
+    /// 计算分段阈值（字符数）— 输入占 contextWindow 的 50%
+    /// 中文约 1.5 token/字，所以：maxChars = contextWindow * 50% / 1.5
+    private func computeChunkThreshold(contextWindow: Int) -> Int {
+        let inputTokenBudget = contextWindow / 2  // 50% 留给输入
+        let maxChars = Int(Double(inputTokenBudget) / 1.5)
+        // 至少 4000 字符，最多 64000 字符
+        return max(4000, min(maxChars, 64000))
     }
 
-    /// 判断是否为本地模型（小 context window）
-    private func isLocalModel(config: LLMModelConfig) -> Bool {
-        config.kind == "local" || (config.contextWindow > 0 && config.contextWindow <= 32768)
+    /// 根据 contextWindow 计算最大输出 token
+    private func computeMaxTokens(contextWindow: Int) -> Int {
+        // 输出 token = contextWindow 的 40%（略小于 50%，留余量给 system prompt）
+        let maxOutput = contextWindow * 2 / 5
+        return max(4096, min(maxOutput, 16384))
     }
 
     /// 生成 AI 纪要（自动处理长文本分段）
@@ -52,10 +68,13 @@ class SummaryGenerator {
 
         let apiKey = config.apiKey
         let prompt = customPrompt ?? configStore.activePrompt
-        let chunkThreshold = computeChunkThreshold(config: config)
-        let maxTokens = computeMaxTokens(config: config)
 
-        print("[SummaryGenerator] 文本长度: \(text.count)字, 分段阈值: \(chunkThreshold)字, maxTokens: \(maxTokens), contextWindow: \(config.contextWindow), 本地模型: \(isLocalModel(config: config))")
+        // 探测或使用缓存的 contextWindow
+        let contextWindow = await resolveContextWindow(config: config, apiKey: apiKey)
+        let chunkThreshold = computeChunkThreshold(contextWindow: contextWindow)
+        let maxTokens = computeMaxTokens(contextWindow: contextWindow)
+
+        print("[SummaryGenerator] 文本长度: \(text.count)字, contextWindow: \(contextWindow), 分段阈值: \(chunkThreshold)字, maxTokens: \(maxTokens)")
 
         if text.count <= chunkThreshold {
             onProgress?(1, 1, "正在生成纪要…")
