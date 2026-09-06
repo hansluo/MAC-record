@@ -209,6 +209,12 @@ rm -f "$DMG_RW"
 
 if [ -f "$DMG_PATH" ]; then
     ok "DMG 创建完成: $DMG_PATH"
+    if [ "$SIGNING_IDENTITY" = "Developer ID Application" ]; then
+        info "签名 DMG 外层容器..."
+        codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$DMG_PATH"
+        codesign --verify --verbose=2 "$DMG_PATH"
+        ok "DMG 签名验证通过"
+    fi
 else
     warn "DMG 创建失败，但 .app 已准备好"
 fi
