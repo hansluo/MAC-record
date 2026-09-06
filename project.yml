@@ -40,8 +40,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.hansluo.mac-record
         PRODUCT_NAME: Mac-Record
         PRODUCT_MODULE_NAME: MacRecord
-        MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.1.0"
+        CURRENT_PROJECT_VERSION: "2"
         INFOPLIST_FILE: MacRecord/Info.plist
         CODE_SIGN_ENTITLEMENTS: MacRecord/MacRecord.entitlements
         CODE_SIGN_STYLE: Automatic
