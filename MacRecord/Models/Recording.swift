@@ -16,6 +16,10 @@ final class Recording {
     var diarizedText: String?          // 带说话人标签的转录文本
     var diarizedSpeakerCount: Int?     // 检测到的说话人数量
     var detectedLanguage: String?
+    var asrModelId: String?
+    var structuredSegmentsJSON: String?
+    var transcriptionStatus: String?
+    var transcriptionError: String?
     var createdAt: Date
     var updatedAt: Date
 

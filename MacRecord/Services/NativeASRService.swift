@@ -194,6 +194,12 @@ actor NativeASRService {
             if fm.fileExists(atPath: seg) && fm.fileExists(atPath: emb) {
                 return (seg, emb)
             }
+            // XcodeGen 当前将目录资源平铺到 Bundle 根目录。
+            let flatSeg = bundlePath.appendingPathComponent("model.onnx").path
+            let flatEmb = bundlePath.appendingPathComponent("3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx").path
+            if fm.fileExists(atPath: flatSeg) && fm.fileExists(atPath: flatEmb) {
+                return (flatSeg, flatEmb)
+            }
         }
 
         // 开发目录
@@ -422,24 +428,26 @@ actor NativeASRService {
 
     // MARK: - 实时流式转录
 
-    func realtimeStart(sessionId: String, language: String) {
-        guard let recognizer = recognizer, let vadPath = vadModelPath else { return }
+    func realtimeStart(sessionId: String, language: String) throws {
+        guard let recognizer = recognizer, let vadPath = vadModelPath else {
+            throw NativeASRError.notReady
+        }
         guard let vad = SherpaOnnxVADWrapper(modelPath: vadPath) else {
-            print("[NativeASR] VAD 创建失败")
-            return
+            throw NativeASRError.initFailed("VAD 创建失败")
         }
         let session = RealtimeSession(vad: vad, recognizer: recognizer)
         realtimeSessions[sessionId] = session
         print("[NativeASR] 流式会话启动: \(sessionId)")
     }
 
-    func realtimeStartForVoiceInput(sessionId: String) {
-        guard let recognizer = recognizer, let vadPath = vadModelPath else { return }
+    func realtimeStartForVoiceInput(sessionId: String) throws {
+        guard let recognizer = recognizer, let vadPath = vadModelPath else {
+            throw NativeASRError.notReady
+        }
         guard let vad = SherpaOnnxVADWrapper(
             modelPath: vadPath, minSilenceDuration: 0.2
         ) else {
-            print("[NativeASR] VAD 创建失败 (voiceInput)")
-            return
+            throw NativeASRError.initFailed("语音输入 VAD 创建失败")
         }
         let session = RealtimeSession(vad: vad, recognizer: recognizer)
         realtimeSessions[sessionId] = session
@@ -473,6 +481,10 @@ actor NativeASRService {
 
         session.processNextSegment()
         return session.fullText
+    }
+
+    func realtimeCancel(sessionId: String) {
+        realtimeSessions.removeValue(forKey: sessionId)
     }
 
     func realtimeFeedBase64(sessionId: String, audioBase64: String) -> String {

@@ -5,6 +5,7 @@ import Combine
 /// 语音输入状态机
 enum VoiceInputState: Equatable {
     case idle
+    case starting
     case recording
     case correcting
     case injecting
@@ -26,6 +27,8 @@ class VoiceInputService: ObservableObject {
     private var recorder: AudioRecorder?
     private var voiceInputSessionId: String?
     private var liveTextPollingTask: Task<Void, Never>?
+    private var audioPump: RealtimeAudioPump?
+    private var stopRequestedWhileStarting = false
 
     /// 当前已注入到光标处的文本（用于增量更新和 LLM 替换）
     private var currentInjectedText: String = ""
@@ -109,6 +112,8 @@ class VoiceInputService: ObservableObject {
 
         errorMessage = nil
         currentInjectedText = ""
+        stopRequestedWhileStarting = false
+        state = .starting
 
         // 显示浮窗（录音状态）
         VoiceInputIndicatorWindow.shared.show()
@@ -121,22 +126,38 @@ class VoiceInputService: ObservableObject {
         let sessionId = UUID().uuidString
         self.voiceInputSessionId = sessionId
 
-        if let service = appState.nativeASRService {
-            await service.realtimeStartForVoiceInput(sessionId: sessionId)
+        guard let service = appState.nativeASRService,
+              appState.selectedASRModel.capabilities.supportsRealtime else {
+            appState.recordingMode = .idle
+            state = .idle
+            recorder = nil
+            voiceInputSessionId = nil
+            errorMessage = "当前引擎不支持实时语音输入，请选择 SenseVoice 或 Qwen"
+            VoiceInputIndicatorWindow.shared.showError(message: "请选择实时识别引擎")
+            return
+        }
+        do {
+            try await service.realtimeStartForVoiceInput(sessionId: sessionId)
+        } catch {
+            appState.recordingMode = .idle
+            state = .idle
+            recorder = nil
+            voiceInputSessionId = nil
+            errorMessage = error.localizedDescription
+            VoiceInputIndicatorWindow.shared.showError(message: "ASR 会话启动失败")
+            return
         }
 
-        // buffer 回调：只做 ASR feed
-        rec.onAudioBuffer = { [weak appState] buffer in
-            guard let appState = appState else { return }
+        // buffer 回调只复制采样并投递到有界队列，不创建无上限 Task。
+        let pump = RealtimeAudioPump(service: service, sessionId: sessionId)
+        audioPump = pump
+        rec.onAudioBuffer = { buffer in
             guard let channelData = buffer.floatChannelData?[0] else { return }
-            let count = Int(buffer.frameLength)
-            let samples = Array(UnsafeBufferPointer(start: channelData, count: count))
-
-            Task {
-                if let service = appState.nativeASRService {
-                    _ = await service.realtimeFeed(sessionId: sessionId, samples: samples)
-                }
-            }
+            let samples = Array(UnsafeBufferPointer(
+                start: channelData,
+                count: Int(buffer.frameLength)
+            ))
+            pump.enqueue(samples)
         }
 
         // ★ 实时轮询：ASR 文字变化时立即注入到光标处（替换旧文本）
@@ -168,7 +189,20 @@ class VoiceInputService: ObservableObject {
             try rec.startRecordingLite()
             state = .recording
             print("[VoiceInput] 录音开始")
+            if stopRequestedWhileStarting {
+                stopRequestedWhileStarting = false
+                await stopVoiceInput()
+            }
         } catch {
+            liveTextPollingTask?.cancel()
+            liveTextPollingTask = nil
+            if let audioPump {
+                await audioPump.finish()
+                self.audioPump = nil
+            }
+            await service.realtimeCancel(sessionId: sessionId)
+            recorder = nil
+            voiceInputSessionId = nil
             appState.recordingMode = .idle
             errorMessage = "录音启动失败: \(error.localizedDescription)"
             state = .idle
@@ -177,10 +211,18 @@ class VoiceInputService: ObservableObject {
     }
 
     private func stopVoiceInput() async {
+        if state == .starting {
+            stopRequestedWhileStarting = true
+            return
+        }
         guard state == .recording, let appState = appState else { return }
 
-        // 停止录音 + 轮询
+        // 停止录音并等待有界队列清空，再 finalize ASR。
         stopRecordingOnly()
+        if let audioPump {
+            await audioPump.finish()
+            self.audioPump = nil
+        }
 
         guard let sessionId = voiceInputSessionId,
               let service = appState.nativeASRService else {

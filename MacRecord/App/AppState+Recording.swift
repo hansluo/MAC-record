@@ -1,176 +1,201 @@
 import Foundation
 import AVFoundation
 
-/// AppState 录音功能扩展
 extension AppState {
     var audioRecorder: AudioRecorder? { _lazyRecorder }
 
     private var _lazyRecorder: AudioRecorder {
         if let existing = _recorder { return existing }
-        let rec = AudioRecorder()
-        _recorder = rec
-        return rec
+        let recorder = AudioRecorder()
+        _recorder = recorder
+        return recorder
     }
 
     func startRecordingSession() async {
         guard isModelReady, isIdle else { return }
 
         let sessionId = UUID()
-        recordingStartTime = Date()
-
+        stopRequestedWhileStarting = false
+        recordingMode = .starting(sessionId: sessionId)
         let source = audioSource
+        let capabilities = selectedASRModel.capabilities
+        var pump: RealtimeAudioPump?
 
-        if source == .systemAudio {
-            if let service = nativeASRService {
-                Task.detached {
-                    await service.realtimeStart(sessionId: sessionId.uuidString, language: "auto")
+        do {
+            if capabilities.supportsRealtime {
+                guard let service = nativeASRService else { throw NativeASRError.notReady }
+                try await service.realtimeStart(sessionId: sessionId.uuidString, language: "auto")
+                pump = RealtimeAudioPump(service: service, sessionId: sessionId.uuidString)
+                realtimeAudioPump = pump
+            }
+
+            if source == .systemAudio {
+                let recorder = SystemAudioRecorder()
+                systemAudioRecorder = recorder
+                recorder.onAudioBuffer = { buffer in
+                    guard let channelData = buffer.floatChannelData?[0], let pump else { return }
+                    pump.enqueue(Array(UnsafeBufferPointer(
+                        start: channelData,
+                        count: Int(buffer.frameLength)
+                    )))
                 }
-            }
-
-            let sysRecorder = SystemAudioRecorder()
-            self.systemAudioRecorder = sysRecorder
-            sysRecorder.onAudioBuffer = { [weak self] buffer in
-                guard let self = self else { return }
-                Task { await self.routeBufferToASR(buffer: buffer, sessionId: sessionId) }
-            }
-
-            do {
-                try await sysRecorder.startRecording()
-                recordingMode = .normalRecording(sessionId: sessionId, paused: false)
-            } catch {
-                print("[SystemAudio] 启动失败: \(error)")
-                sysRecorder.errorMessage = error.localizedDescription
-                systemAudioRecorder = nil
-                recordingMode = .idle
-                modelStatus = "❌ Self 记录启动失败: \(error.localizedDescription)"
-            }
-
-        } else {
-            if let service = nativeASRService {
-                Task.detached {
-                    await service.realtimeStart(sessionId: sessionId.uuidString, language: "auto")
+                try await recorder.startRecording()
+            } else {
+                let recorder = _lazyRecorder
+                recorder.onRawAudioBuffer = nil
+                recorder.onAudioBuffer = { buffer in
+                    guard let channelData = buffer.floatChannelData?[0], let pump else { return }
+                    pump.enqueue(Array(UnsafeBufferPointer(
+                        start: channelData,
+                        count: Int(buffer.frameLength)
+                    )))
                 }
-            }
-
-            guard let recorder = _lazyRecorder as AudioRecorder? else { return }
-            recorder.onRawAudioBuffer = nil
-            recorder.onAudioBuffer = { [weak self] buffer in
-                guard let self = self else { return }
-                Task { await self.routeBufferToASR(buffer: buffer, sessionId: sessionId) }
-            }
-
-            do {
                 try recorder.startRecording()
-                recordingMode = .normalRecording(sessionId: sessionId, paused: false)
-            } catch {
-                print("[Recorder] 启动失败: \(error)")
-                recordingMode = .idle
             }
+
+            recordingStartTime = Date()
+            recordingMode = .normalRecording(sessionId: sessionId, paused: false)
+            transcriptionStatus = capabilities.supportsRealtime
+                ? "正在实时转录"
+                : "录音结束后使用 MOSS-TD 转录"
+            if stopRequestedWhileStarting {
+                stopRequestedWhileStarting = false
+                await stopRecordingSession()
+            }
+        } catch {
+            if let pump { await pump.finish() }
+            realtimeAudioPump = nil
+            if capabilities.supportsRealtime, let service = nativeASRService {
+                await service.realtimeCancel(sessionId: sessionId.uuidString)
+            }
+            systemAudioRecorder = nil
+            recordingMode = .idle
+            transcriptionStatus = nil
+            modelStatus = "❌ 录音启动失败: \(error.localizedDescription)"
         }
     }
 
     func togglePauseRecording() async {
-        if audioSource == .systemAudio {
-            return
-        }
-        guard let recorder = audioRecorder,
-              case .normalRecording(let sid, let paused) = recordingMode else { return }
+        guard audioSource == .microphone,
+              let recorder = audioRecorder,
+              case .normalRecording(let sessionId, let paused) = recordingMode else { return }
         if paused {
             recorder.resumeRecording()
-            recordingMode = .normalRecording(sessionId: sid, paused: false)
+            recordingMode = .normalRecording(sessionId: sessionId, paused: false)
         } else {
             recorder.pauseRecording()
-            recordingMode = .normalRecording(sessionId: sid, paused: true)
+            recordingMode = .normalRecording(sessionId: sessionId, paused: true)
         }
     }
 
     func stopRecordingSession() async {
+        if case .starting = recordingMode {
+            stopRequestedWhileStarting = true
+            return
+        }
         guard case .normalRecording(let sessionId, _) = recordingMode else { return }
+        recordingMode = .stopping(sessionId: sessionId)
 
         let source = audioSource
+        let selectedModelId = asrConfigStore.selectedModelId
         var recordingURL: URL?
         var duration: TimeInterval = 0
 
         if source == .systemAudio {
-            if let sysRecorder = systemAudioRecorder {
-                recordingURL = await sysRecorder.stopRecording()
-                duration = sysRecorder.elapsedTime
-                sysRecorder.onAudioBuffer = nil
+            if let recorder = systemAudioRecorder {
+                recorder.onAudioBuffer = nil
+                recordingURL = await recorder.stopRecording()
+                duration = recorder.elapsedTime
             }
             systemAudioRecorder = nil
-        } else {
-            if let recorder = audioRecorder {
-                recordingURL = recorder.stopRecording()
-                duration = recorder.elapsedTime
-                recorder.onAudioBuffer = nil
-                recorder.onRawAudioBuffer = nil
-            }
+        } else if let recorder = audioRecorder {
+            recorder.onAudioBuffer = nil
+            recorder.onRawAudioBuffer = nil
+            recordingURL = recorder.stopRecording()
+            duration = recorder.elapsedTime
         }
 
-        recordingMode = .idle
+        if let pump = realtimeAudioPump {
+            await pump.finish()
+            if pump.droppedBufferCount > 0 {
+                print("[ASR] 有界队列丢弃了 \(pump.droppedBufferCount) 个过期 buffer")
+            }
+        }
+        realtimeAudioPump = nil
 
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.dateFormat = "M月d日 HH:mm"
         let prefix = source == .systemAudio ? "系统录音" : "录音"
-        let autoTitle = "\(prefix) \(formatter.string(from: recordingStartTime ?? Date()))"
+        let title = "\(prefix) \(formatter.string(from: recordingStartTime ?? Date()))"
 
-        let sid = sessionId.uuidString
-
-        // ★ 将录音完成信息暂存到 AppState（防止通知竞争丢失）
-        let completionInfo: [String: Any] = [
-            "sessionId": sessionId,
-            "title": autoTitle,
-            "plainText": "",
-            "timestampText": "",
-            "detectedLanguage": "",
-            "duration": duration,
-            "recordingURL": recordingURL as Any,
-        ]
-        pendingCompletedRecordings.append(completionInfo)
-
-        NotificationCenter.default.post(
-            name: .recordingCompleted,
-            object: nil,
-            userInfo: completionInfo
-        )
-
-        // 后台 finalize
-        let service = nativeASRService
-        Task.detached {
-            guard let service = service else { return }
-            do {
-                let result = try await service.realtimeStop(sessionId: sid)
-                await MainActor.run {
-                    NotificationCenter.default.post(
-                        name: .recordingTextReady,
-                        object: nil,
-                        userInfo: [
-                            "sessionId": sessionId,
-                            "plainText": result.plainText,
-                            "timestampText": "",
-                            "detectedLanguage": result.detectedLanguage ?? "",
-                        ]
-                    )
+        var persistedRecordingId: UUID?
+        do {
+            let recordingId = try persistenceCoordinator.createRecordedSession(
+                sessionId: sessionId,
+                title: title,
+                duration: duration,
+                recordingURL: recordingURL,
+                engineId: selectedModelId
+            )
+            persistedRecordingId = recordingId
+            selectedRecordingId = recordingId
+            let supportsRealtime = ModelRegistry.model(for: selectedModelId).capabilities.supportsRealtime
+            if supportsRealtime {
+                transcriptionStatus = "正在完成转录"
+                defer {
+                    recordingMode = .idle
+                    transcriptionStatus = nil
                 }
-            } catch {
-                print("[NativeASR] finalize 失败: \(error)")
+                guard let service = nativeASRService else { throw NativeASRError.notReady }
+                let nativeResult = try await service.realtimeStop(sessionId: sessionId.uuidString)
+                let result = UnifiedTranscriptionResult(
+                    text: nativeResult.plainText,
+                    language: nativeResult.detectedLanguage,
+                    segments: [],
+                    engineId: selectedModelId.rawValue,
+                    modelVersion: nil,
+                    duration: nativeResult.duration,
+                    elapsed: nil,
+                    diagnostics: nativeResult.emotion
+                )
+                try persistenceCoordinator.apply(result, to: recordingId)
+            } else {
+                recordingMode = .idle
+                transcriptionStatus = "MOSS-TD 转录队列处理中"
+                let task = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    defer {
+                        self.transcriptionTasks.removeValue(forKey: recordingId)
+                        self.transcriptionStatus = self.transcriptionTasks.isEmpty
+                            ? nil
+                            : "MOSS-TD 转录队列处理中"
+                    }
+                    do {
+                        let audioURL = try self.persistenceCoordinator.audioURL(for: recordingId)
+                        let runner = self.mossSidecarRunner
+                        let hotwords = self.asrConfigStore.mossHotwords
+                        let result = try await self.transcriptionQueue.enqueue {
+                            try await runner.transcribeFile(at: audioURL, hotwords: hotwords)
+                        }
+                        try self.persistenceCoordinator.apply(result, to: recordingId)
+                    } catch {
+                        self.persistenceCoordinator.markFailed(error, recordingId: recordingId)
+                        self.modelStatus = "❌ 转录失败: \(error.localizedDescription)"
+                    }
+                }
+                transcriptionTasks[recordingId] = task
+            }
+        } catch {
+            if let persistedRecordingId {
+                persistenceCoordinator.markFailed(error, recordingId: persistedRecordingId)
+            }
+            recordingMode = .idle
+            transcriptionStatus = nil
+            modelStatus = "❌ 保存或完成录音失败: \(error.localizedDescription)"
+            if selectedASRModel.capabilities.supportsRealtime, let service = nativeASRService {
+                await service.realtimeCancel(sessionId: sessionId.uuidString)
             }
         }
     }
-
-    private func routeBufferToASR(buffer: AVAudioPCMBuffer, sessionId: UUID) async {
-        guard let channelData = buffer.floatChannelData?[0] else { return }
-        let count = Int(buffer.frameLength)
-
-        if let service = nativeASRService {
-            let samples = Array(UnsafeBufferPointer(start: channelData, count: count))
-            _ = await service.realtimeFeed(sessionId: sessionId.uuidString, samples: samples)
-        }
-    }
-}
-
-extension Notification.Name {
-    static let recordingCompleted = Notification.Name("recordingCompleted")
-    static let recordingTextReady = Notification.Name("recordingTextReady")
 }

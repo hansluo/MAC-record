@@ -47,6 +47,7 @@ class AudioRecorder: ObservableObject {
     // MARK: - 录音控制
 
     func startRecording(deviceUID: String? = nil) throws {
+        OSAtomicCompareAndSwap32(1, 0, _isPausedAtomic)
         let engine = AVAudioEngine()
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
@@ -235,6 +236,7 @@ class AudioRecorder: ObservableObject {
     /// 启动轻量录音（仅 AVAudioEngine + buffer 回调，不创建文件）
     /// 用于语音输入场景，音频仅通过 onAudioBuffer 发给 ASR
     func startRecordingLite() throws {
+        OSAtomicCompareAndSwap32(1, 0, _isPausedAtomic)
         let engine = AVAudioEngine()
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
@@ -312,6 +314,7 @@ class AudioRecorder: ObservableObject {
         audioEngine?.stop()
         isRecording = false
         isPaused = false
+        OSAtomicCompareAndSwap32(1, 0, _isPausedAtomic)
         audioEngine = nil
         inputNode = nil
         recentLevels = []
@@ -343,6 +346,7 @@ class AudioRecorder: ObservableObject {
 
         isRecording = false
         isPaused = false
+        OSAtomicCompareAndSwap32(1, 0, _isPausedAtomic)
 
         audioEngine = nil
         inputNode = nil

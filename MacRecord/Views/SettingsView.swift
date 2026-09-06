@@ -59,12 +59,27 @@ struct ASRModelTab: View {
                         },
                         onDelete: {
                             appState.modelDownloadManager.deleteModel(modelId: modelInfo.id)
-                            // 如果删除的是当前选中模型，切回内置模型
                             if appState.asrConfigStore.selectedModelId == modelInfo.id {
                                 Task { await appState.switchASRModel(to: .senseVoiceInt8) }
                             }
                         }
                     )
+                }
+
+                GroupBox("MOSS-TD 热词") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        TextField("人名、产品名、领域术语，用逗号分隔", text: Binding(
+                            get: { appState.asrConfigStore.mossHotwordsText },
+                            set: {
+                                appState.asrConfigStore.mossHotwordsText = $0
+                                appState.asrConfigStore.save()
+                            }
+                        ))
+                        Text("热词以提示词方式影响生成，不是强制词典约束。")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(6)
                 }
 
                 // 模型存储路径
@@ -130,6 +145,10 @@ struct ASRModelCard: View {
                         .font(.caption2)
                         .foregroundStyle(.pink)
                 }
+
+                Text(capabilityDescription)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
 
             Spacer()
@@ -175,6 +194,9 @@ struct ASRModelCard: View {
                     Text("安装中")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                    Button("取消") { onCancel() }
+                        .font(.caption2)
+                        .buttonStyle(.borderless)
                 }
             case .failed(let msg):
                 VStack(spacing: 4) {
@@ -202,7 +224,12 @@ struct ASRModelCard: View {
                     }
                 } else {
                     Button { onDownload() } label: {
-                        Label("下载", systemImage: "arrow.down.circle.fill")
+                        Label(
+                            modelInfo.family == .mossTranscribeDiarize ? "安装" : "下载",
+                            systemImage: modelInfo.family == .mossTranscribeDiarize
+                                ? "shippingbox.and.arrow.backward.fill"
+                                : "arrow.down.circle.fill"
+                        )
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
@@ -211,10 +238,20 @@ struct ASRModelCard: View {
         }
     }
 
+    private var capabilityDescription: String {
+        var items: [String] = []
+        if modelInfo.capabilities.supportsRealtime { items.append("实时转录") }
+        if modelInfo.capabilities.supportsFileTranscription { items.append("文件转录") }
+        if modelInfo.capabilities.supportsSpeakerLabels { items.append("说话人标签") }
+        if modelInfo.capabilities.supportsTimestamps { items.append("时间戳") }
+        return items.joined(separator: " · ")
+    }
+
     private var iconBackground: Color {
         switch modelInfo.family {
         case .senseVoice: return modelInfo.id == .senseVoiceInt8 ? .green : .blue
         case .qwen3ASR: return .purple
+        case .mossTranscribeDiarize: return .indigo
         case .appleSpeech: return .gray
         }
     }

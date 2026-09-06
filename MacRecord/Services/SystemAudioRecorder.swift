@@ -192,11 +192,11 @@ class SystemAudioRecorder: NSObject, ObservableObject {
     }
 
     /// 唤醒后恢复：重新创建 SCStream 继续录音
-    func resumeFromSleep() async {
-        guard recordingURL != nil else { return }
+    func resumeFromSleep() async -> Bool {
+        guard recordingURL != nil else { return false }
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-            guard let display = content.displays.first else { return }
+            guard let display = content.displays.first else { return false }
 
             let filter = SCContentFilter(display: display, excludingWindows: [])
             let config = SCStreamConfiguration()
@@ -242,9 +242,14 @@ class SystemAudioRecorder: NSObject, ObservableObject {
                     self.elapsedTime = self.pausedElapsedTime + Date().timeIntervalSince(resumeStart)
                 }
             }
+            isRecording = true
             print("[SystemAudio] 从休眠恢复，SCStream 已重建")
+            return true
         } catch {
+            errorMessage = "唤醒后恢复录音失败: \(error.localizedDescription)"
+            isRecording = false
             print("[SystemAudio] 唤醒恢复失败: \(error)")
+            return false
         }
     }
 }

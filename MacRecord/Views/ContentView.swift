@@ -53,16 +53,7 @@ struct ContentView: View {
                 importOverlay
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .recordingCompleted)) { notification in
-            handleRecordingCompleted(notification)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .recordingTextReady)) { notification in
-            handleRecordingTextReady(notification)
-        }
         .onAppear {
-            // ★ 消费可能在 View 还未就绪时暂存的录音完成信息（防丢失）
-            consumePendingRecordings()
-            // ★ 启动时清理孤立临时文件
             cleanupOrphanedFiles()
         }
     }
@@ -159,6 +150,22 @@ struct ContentView: View {
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 4)
+
+                Picker("识别引擎", selection: Binding(
+                    get: { appState.asrConfigStore.selectedModelId },
+                    set: { modelId in Task { await appState.switchASRModel(to: modelId) } }
+                )) {
+                    ForEach(ModelRegistry.allModels.filter {
+                        appState.modelDownloadManager.isDownloaded($0.id)
+                    }, id: \.id) { model in
+                        Text(model.capabilities.supportsRealtime
+                            ? "\(model.displayName) · 实时"
+                            : "\(model.displayName) · 录后转录")
+                            .tag(model.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .controlSize(.small)
             }
 
             if appState.isRecording {
@@ -215,6 +222,11 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                    } else if !appState.selectedASRModel.capabilities.supportsRealtime {
+                        Label("录音结束后使用 MOSS-TD 生成说话人时间线", systemImage: "person.wave.2")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
                     // DRM 保护提示（Self 模式下检测到保护应用时）
@@ -233,6 +245,19 @@ struct ContentView: View {
                     }
                 }
             } else {
+                if let status = appState.transcriptionStatus {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(status)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("取消") { Task { await appState.cancelTranscription() } }
+                            .buttonStyle(.borderless)
+                            .font(.caption)
+                    }
+                }
+
                 Button {
                     Task {
                         await appState.startRecordingSession()
@@ -338,6 +363,7 @@ struct ContentView: View {
             } label: {
                 Label("导入文件", systemImage: "square.and.arrow.down")
             }
+            .disabled(!appState.isIdle)
             .help("导入 MP3/M4A/WAV 等音频文件")
 
             Button {
@@ -441,111 +467,49 @@ struct ContentView: View {
     private func deleteSelected() {
         guard let id = appState.selectedRecordingId,
               let recording = recordings.first(where: { $0.id == id }) else { return }
+        let audioPath = recording.audioPath
         appState.selectedRecordingId = nil
-        if let audioPath = recording.audioPath {
-            AudioFileManager.shared.deleteAudioFile(relativePath: audioPath)
-        }
         modelContext.delete(recording)
+        do {
+            try modelContext.save()
+            if let audioPath {
+                AudioFileManager.shared.deleteAudioFile(relativePath: audioPath)
+            }
+        } catch {
+            modelContext.rollback()
+            appState.selectedRecordingId = id
+        }
     }
 
     private func importAudioFile(url: URL) async {
         isImporting = true
-        importProgress = "正在导入…"
+        importProgress = "正在复制音频…"
+        defer { isImporting = false }
 
         let accessing = url.startAccessingSecurityScopedResource()
         defer { if accessing { url.stopAccessingSecurityScopedResource() } }
 
-        let title = url.deletingPathExtension().lastPathComponent
-
-        let recording = Recording(
-            title: title,
-            originalFilename: url.lastPathComponent,
-            createdAt: Date(),
-            updatedAt: Date()
-        )
-        modelContext.insert(recording)
-
-        if let storedPath = AudioFileManager.shared.storeAudioFile(from: url, hash: recording.id.uuidString) {
-            recording.audioPath = storedPath
-        }
-
-        if let service = appState.nativeASRService, appState.isModelReady {
-            importProgress = "正在转录…"
-            do {
-                let result = try await service.transcribeFile(audioPath: url.path, language: "auto")
-                recording.plainText = result.plainText
-                recording.detectedLanguage = result.detectedLanguage
-                recording.updatedAt = Date()
-            } catch {
-                importProgress = "转录失败: \(error.localizedDescription)"
-                try? await Task.sleep(for: .seconds(2))
+        var importedRecordingId: UUID?
+        do {
+            let recordingId = try appState.persistenceCoordinator.importAudio(
+                sourceURL: url,
+                title: url.deletingPathExtension().lastPathComponent,
+                engineId: appState.asrConfigStore.selectedModelId
+            )
+            importedRecordingId = recordingId
+            appState.selectedRecordingId = recordingId
+            importProgress = appState.selectedASRModel.family == .mossTranscribeDiarize
+                ? "正在使用 MOSS-TD 生成说话人时间线…"
+                : "正在转录…"
+            let managedURL = try appState.persistenceCoordinator.audioURL(for: recordingId)
+            let result = try await appState.transcribeFile(at: managedURL)
+            try appState.persistenceCoordinator.apply(result, to: recordingId)
+        } catch {
+            if let importedRecordingId {
+                appState.persistenceCoordinator.markFailed(error, recordingId: importedRecordingId)
             }
-        }
-
-        appState.selectedRecordingId = recording.id
-        isImporting = false
-    }
-
-    private func handleRecordingCompleted(_ notification: Notification) {
-        guard let rawInfo = notification.userInfo else { return }
-        // 将 [AnyHashable: Any] 转为 [String: Any]
-        let info = Dictionary(uniqueKeysWithValues: rawInfo.compactMap { key, value in
-            (key as? String).map { ($0, value) }
-        })
-        persistRecording(from: info)
-        // 从 pending 队列移除已处理的
-        if let sessionId = info["sessionId"] as? UUID {
-            appState.pendingCompletedRecordings.removeAll { ($0["sessionId"] as? UUID) == sessionId }
-        }
-    }
-
-    /// 将录音信息持久化到 SwiftData（通知处理和 pending 消费共用）
-    private func persistRecording(from info: [String: Any]) {
-        let title = info["title"] as? String ?? "新录音"
-        let plainText = info["plainText"] as? String ?? ""
-        let timestampText = info["timestampText"] as? String ?? ""
-        let detectedLang = info["detectedLanguage"] as? String
-        let duration = info["duration"] as? TimeInterval ?? 0
-        let recordingURL = info["recordingURL"] as? URL
-        let sessionId = info["sessionId"] as? UUID
-
-        // 防重复：如果已存在相同 sessionId 的记录则跳过
-        if let sid = sessionId,
-           recordings.contains(where: { $0.fileHash == sid.uuidString }) {
-            return
-        }
-
-        let recording = Recording(
-            title: title,
-            duration: duration,
-            timestampText: timestampText,
-            plainText: plainText.isEmpty ? nil : plainText,
-            detectedLanguage: detectedLang,
-            createdAt: Date(),
-            updatedAt: Date()
-        )
-        // 保存 sessionId 以便后续补充文本
-        if let sid = sessionId {
-            recording.fileHash = sid.uuidString
-        }
-        modelContext.insert(recording)
-
-        if let url = recordingURL {
-            if let storedPath = AudioFileManager.shared.storeAudioFile(from: url, hash: recording.id.uuidString) {
-                recording.audioPath = storedPath
-            }
-        }
-
-        appState.selectedRecordingId = recording.id
-    }
-
-    /// 消费暂存的录音完成队列（处理通知发送时 View 未就绪的情况）
-    private func consumePendingRecordings() {
-        guard !appState.pendingCompletedRecordings.isEmpty else { return }
-        let pending = appState.pendingCompletedRecordings
-        appState.pendingCompletedRecordings.removeAll()
-        for info in pending {
-            persistRecording(from: info)
+            importProgress = "导入失败: \(error.localizedDescription)"
+            try? await Task.sleep(for: .seconds(2))
         }
     }
 
@@ -555,27 +519,6 @@ struct ContentView: View {
         AudioFileManager.shared.cleanupOrphanedTempFiles(keepHashes: existingPaths)
     }
 
-    private func handleRecordingTextReady(_ notification: Notification) {
-        guard let info = notification.userInfo,
-              let sessionId = info["sessionId"] as? UUID else { return }
-        let plainText = info["plainText"] as? String ?? ""
-        let timestampText = info["timestampText"] as? String ?? ""
-        let detectedLang = info["detectedLanguage"] as? String
-
-        // 找到对应的录音记录并更新文本
-        if let recording = recordings.first(where: { $0.fileHash == sessionId.uuidString }) {
-            if !plainText.isEmpty {
-                recording.plainText = plainText
-            }
-            if !timestampText.isEmpty {
-                recording.timestampText = timestampText
-            }
-            if let lang = detectedLang, !lang.isEmpty {
-                recording.detectedLanguage = lang
-            }
-            recording.updatedAt = Date()
-        }
-    }
 }
 
 // MARK: - Recording Row
@@ -596,7 +539,15 @@ struct RecordingRow: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if recording.plainText?.isEmpty == false {
+                if recording.transcriptionStatus == "processing" {
+                    ProgressView()
+                        .controlSize(.mini)
+                } else if recording.transcriptionStatus == "failed" {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .help(recording.transcriptionError ?? "转录失败")
+                } else if recording.plainText?.isEmpty == false {
                     Image(systemName: "text.alignleft")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)

@@ -69,7 +69,10 @@ class SleepWakeManager {
                 wasPausedBySleep = true
 
                 if appState.audioSource == .systemAudio {
-                    // 系统音频：停止 stream（休眠后 ScreenCaptureKit 会失效）
+                    // 系统音频：先更新状态，再停止休眠后会失效的 SCStream。
+                    if case .normalRecording(let sessionId, _) = appState.recordingMode {
+                        appState.recordingMode = .normalRecording(sessionId: sessionId, paused: true)
+                    }
                     Task {
                         if let sysRecorder = appState.systemAudioRecorder {
                             await sysRecorder.pauseForSleep()
@@ -86,7 +89,7 @@ class SleepWakeManager {
             // 语音输入模式休眠不处理（短按交互，用户不会在休眠时使用）
             break
 
-        case .idle:
+        case .starting, .stopping, .idle:
             break
         }
     }
@@ -104,8 +107,13 @@ class SleepWakeManager {
             guard case .normalRecording(_, let paused) = appState.recordingMode, paused else { return }
 
             if appState.audioSource == .systemAudio {
-                if let sysRecorder = appState.systemAudioRecorder {
-                    await sysRecorder.resumeFromSleep()
+                guard let sysRecorder = appState.systemAudioRecorder,
+                      await sysRecorder.resumeFromSleep() else {
+                    appState.modelStatus = "❌ 系统音频从休眠恢复失败"
+                    return
+                }
+                if case .normalRecording(let sessionId, _) = appState.recordingMode {
+                    appState.recordingMode = .normalRecording(sessionId: sessionId, paused: false)
                 }
             } else {
                 await appState.togglePauseRecording()

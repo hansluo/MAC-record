@@ -93,7 +93,13 @@ struct MenuBarView: View {
 
             // 退出
             Button {
-                NSApp.terminate(nil)
+                Task {
+                    if appState.isRecording {
+                        await appState.stopRecordingSession()
+                    }
+                    await appState.cancelTranscription()
+                    NSApp.terminate(nil)
+                }
             } label: {
                 Label("退出 Mac-Record", systemImage: "power")
                     .font(.subheadline)
@@ -108,6 +114,7 @@ struct MenuBarView: View {
     private var statusColor: Color {
         switch appState.voiceInputService.state {
         case .idle: return appState.voiceInputService.configStore.isEnabled ? .green : .gray
+        case .starting: return .orange
         case .recording: return .red
         case .correcting: return .blue
         case .injecting: return .purple
@@ -117,6 +124,7 @@ struct MenuBarView: View {
     private var statusText: String {
         switch appState.voiceInputService.state {
         case .idle: return appState.voiceInputService.configStore.isEnabled ? "就绪" : "已关闭"
+        case .starting: return "启动中…"
         case .recording: return "录音中…"
         case .correcting: return "优化中…"
         case .injecting: return "注入中…"

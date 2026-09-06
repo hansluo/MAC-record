@@ -25,6 +25,8 @@ class ModelDownloadManager: ObservableObject {
 
     private var downloadTasks: [ASRModelID: URLSessionDownloadTask] = [:]
     private var observations: [ASRModelID: NSKeyValueObservation] = [:]
+    private var mossInstallTask: Task<Void, Never>?
+    private let mossRuntimeManager = MOSSRuntimeManager()
 
     init() {
         refreshDownloadedModels()
@@ -49,6 +51,25 @@ class ModelDownloadManager: ObservableObject {
     /// 开始下载模型
     func download(modelId: ASRModelID) {
         let info = ModelRegistry.model(for: modelId)
+        if info.family == .mossTranscribeDiarize {
+            guard mossInstallTask == nil else { return }
+            downloads[modelId] = .extracting
+            mossInstallTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.mossRuntimeManager.install()
+                switch self.mossRuntimeManager.state {
+                case .ready:
+                    self.downloads[modelId] = .completed
+                    self.refreshDownloadedModels()
+                case .failed(let message):
+                    self.downloads[modelId] = .failed(message)
+                default:
+                    self.downloads[modelId] = .failed("MOSS 运行环境安装未完成")
+                }
+                self.mossInstallTask = nil
+            }
+            return
+        }
         guard let urlString = info.downloadURL, let url = URL(string: urlString) else {
             downloads[modelId] = .failed("无效的下载地址")
             return
@@ -76,6 +97,12 @@ class ModelDownloadManager: ObservableObject {
                     return
                 }
 
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200...299).contains(httpResponse.statusCode) else {
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    self.downloads[modelId] = .failed("下载服务器返回 HTTP \(status)")
+                    return
+                }
                 guard let tempURL = tempURL else {
                     self.downloads[modelId] = .failed("下载文件不存在")
                     return
@@ -99,6 +126,11 @@ class ModelDownloadManager: ObservableObject {
 
     /// 取消下载
     func cancelDownload(modelId: ASRModelID) {
+        if modelId == .mossTranscribeDiarize09B {
+            mossInstallTask?.cancel()
+            mossRuntimeManager.cancelInstallation()
+            mossInstallTask = nil
+        }
         downloadTasks[modelId]?.cancel()
         downloadTasks.removeValue(forKey: modelId)
         observations.removeValue(forKey: modelId)
@@ -107,8 +139,12 @@ class ModelDownloadManager: ObservableObject {
 
     /// 删除已下载的模型
     func deleteModel(modelId: ASRModelID) {
-        let modelDir = ModelRegistry.modelDirectory(for: modelId)
-        try? FileManager.default.removeItem(at: modelDir)
+        if modelId == .mossTranscribeDiarize09B {
+            try? mossRuntimeManager.remove()
+        } else {
+            let modelDir = ModelRegistry.modelDirectory(for: modelId)
+            try? FileManager.default.removeItem(at: modelDir)
+        }
         downloads[modelId] = .idle
         refreshDownloadedModels()
     }
@@ -132,23 +168,17 @@ class ModelDownloadManager: ObservableObject {
             }
             try fm.copyItem(at: archiveURL, to: localArchive)
 
-            // 解压 tar.bz2
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-            process.arguments = ["xjf", localArchive.path, "-C", modelDir.path, "--strip-components=1"]
+            // 在后台异步解压并持续排空输出，避免阻塞主线程或管道死锁。
+            let result = try await ProcessRunner.run(
+                executable: URL(fileURLWithPath: "/usr/bin/tar"),
+                arguments: ["xjf", localArchive.path, "-C", modelDir.path, "--strip-components=1"],
+                timeout: 1_800
+            )
 
-            let errPipe = Pipe()
-            process.standardError = errPipe
-
-            try process.run()
-            process.waitUntilExit()
-
-            // 清理压缩包
             try? fm.removeItem(at: localArchive)
 
-            if process.terminationStatus != 0 {
-                let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-                let errMsg = String(data: errData, encoding: .utf8) ?? "未知解压错误"
+            if result.status != 0 {
+                let errMsg = String(data: result.standardError, encoding: .utf8) ?? "未知解压错误"
                 throw ExtractError.extractFailed(errMsg)
             }
 

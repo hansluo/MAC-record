@@ -42,6 +42,19 @@ class AudioFileManager {
         }
     }
 
+    /// 导入用户文件。始终复制，绝不移动或删除用户选择的源文件。
+    func importAudioFile(from sourceURL: URL, hash: String) throws -> String {
+        let ext = sourceURL.pathExtension.isEmpty ? "wav" : sourceURL.pathExtension
+        let filename = "\(hash).\(ext)"
+        let destination = audioStorageDir.appendingPathComponent(filename)
+
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+        try FileManager.default.copyItem(at: sourceURL, to: destination)
+        return filename
+    }
+
     /// 获取完整路径
     func fullPath(for relativePath: String) -> String {
         return audioStorageDir.appendingPathComponent(relativePath).path
@@ -76,6 +89,7 @@ class AudioFileManager {
         for file in files {
             let name = file.lastPathComponent
             guard name.hasPrefix("recording_") else { continue }
+            guard !keepHashes.contains(name) && !keepHashes.contains(file.path) else { continue }
 
             // 安全检查：不要删除仍可能在写入中的文件（最近 60 秒内修改的）
             if let attrs = try? FileManager.default.attributesOfItem(atPath: file.path),

@@ -3,9 +3,10 @@ import SwiftData
 
 @main
 struct MacRecordApp: App {
-    @StateObject private var appState = AppState()
+    @StateObject private var appState: AppState
+    let sharedModelContainer: ModelContainer
 
-    var sharedModelContainer: ModelContainer = {
+    init() {
         let schema = Schema([
             Recording.self,
             AISummary.self,
@@ -15,11 +16,13 @@ struct MacRecordApp: App {
             isStoredInMemoryOnly: false
         )
         do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
+            sharedModelContainer = container
+            _appState = StateObject(wrappedValue: AppState(modelContainer: container))
         } catch {
             fatalError("无法创建 ModelContainer: \(error)")
         }
-    }()
+    }
 
     var body: some Scene {
         // 主窗口
@@ -52,6 +55,7 @@ struct MacRecordApp: App {
     private var menuBarIconName: String {
         switch appState.voiceInputService.state {
         case .idle: return "mic.badge.plus"
+        case .starting: return "mic.badge.clock"
         case .recording: return "mic.fill"
         case .correcting: return "sparkles"
         case .injecting: return "text.cursor"

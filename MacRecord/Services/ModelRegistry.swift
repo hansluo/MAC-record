@@ -6,6 +6,7 @@ import Foundation
 enum ASRModelFamily: String, Codable {
     case senseVoice
     case qwen3ASR
+    case mossTranscribeDiarize
     case appleSpeech
 }
 
@@ -14,6 +15,7 @@ enum ASRModelID: String, Codable, CaseIterable, Identifiable {
     case senseVoiceInt8 = "sensevoice-int8"
     case senseVoiceFull = "sensevoice-full"
     case qwen3ASR06BInt8 = "qwen3-asr-0.6b-int8"
+    case mossTranscribeDiarize09B = "moss-transcribe-diarize-0.9b-mlx-8bit"
 
     var id: String { rawValue }
 }
@@ -30,6 +32,7 @@ struct ASRModelInfo {
     let downloadSizeBytes: Int64   // 下载包大小（压缩后）
     let iconName: String
     let tags: [(String, TagColor)]
+    let capabilities: ASRCapabilities
     let isBuiltin: Bool            // 是否内置在 App Bundle 中
     let downloadURL: String?       // 下载地址（内置模型为 nil）
     let archiveName: String?       // 压缩包名（用于解压）
@@ -51,6 +54,7 @@ struct ModelRegistry {
             downloadSizeBytes: 0,
             iconName: "brain.head.profile",
             tags: [("Alibaba", .orange), ("原生", .green), ("INT8", .blue)],
+            capabilities: .native,
             isBuiltin: true,
             downloadURL: nil,
             archiveName: nil
@@ -66,6 +70,7 @@ struct ModelRegistry {
             downloadSizeBytes: 937_900_000,
             iconName: "waveform.badge.magnifyingglass",
             tags: [("Alibaba", .orange), ("原生", .green), ("全精度", .purple)],
+            capabilities: .native,
             isBuiltin: false,
             downloadURL: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2",
             archiveName: "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
@@ -81,9 +86,26 @@ struct ModelRegistry {
             downloadSizeBytes: 987_700_000,
             iconName: "globe",
             tags: [("Qwen", .orange), ("原生", .green), ("INT8", .blue)],
+            capabilities: .native,
             isBuiltin: false,
             downloadURL: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2025-03-25.tar.bz2",
             archiveName: "sherpa-onnx-qwen3-asr-0.6B-int8-2025-03-25"
+        ),
+        ASRModelInfo(
+            id: .mossTranscribeDiarize09B,
+            displayName: "MOSS-TD 0.9B MLX",
+            family: .mossTranscribeDiarize,
+            provider: "OpenMOSS",
+            description: "录音结束后生成带说话人标签和时间戳的结构化转录",
+            languages: "50+ 语言",
+            modelSize: "约 1.2 GB",
+            downloadSizeBytes: 1_200_000_000,
+            iconName: "person.wave.2.fill",
+            tags: [("OpenMOSS", .blue), ("MLX", .green), ("文件转录", .purple)],
+            capabilities: .moss,
+            isBuiltin: false,
+            downloadURL: nil,
+            archiveName: nil
         ),
     ]
 
@@ -108,7 +130,9 @@ struct ModelRegistry {
     /// 检查模型是否已下载（对内置模型始终返回 true）
     static func isModelDownloaded(_ id: ASRModelID) -> Bool {
         let info = model(for: id)
-        if info.isBuiltin { return true }
+        if info.isBuiltin {
+            return modelPaths(for: id) != nil
+        }
 
         let modelDir = modelDirectory(for: id)
         switch info.family {
@@ -117,9 +141,15 @@ struct ModelRegistry {
                 atPath: modelDir.appendingPathComponent("model.onnx").path
             )
         case .qwen3ASR:
-            return FileManager.default.fileExists(
-                atPath: modelDir.appendingPathComponent("decoder.int8.onnx").path
-            )
+            let requiredPaths = [
+                modelDir.appendingPathComponent("conv_frontend.onnx"),
+                modelDir.appendingPathComponent("encoder.int8.onnx"),
+                modelDir.appendingPathComponent("decoder.int8.onnx"),
+                modelDir.appendingPathComponent("tokenizer", isDirectory: true),
+            ]
+            return requiredPaths.allSatisfy { FileManager.default.fileExists(atPath: $0.path) }
+        case .mossTranscribeDiarize:
+            return MOSSRuntimeEnvironment.isInstalled
         case .appleSpeech:
             return true
         }
@@ -134,7 +164,7 @@ struct ModelRegistry {
             return senseVoicePaths(for: id, isInt8: id == .senseVoiceInt8)
         case .qwen3ASR:
             return qwen3ASRPaths(for: id)
-        case .appleSpeech:
+        case .mossTranscribeDiarize, .appleSpeech:
             return nil
         }
     }

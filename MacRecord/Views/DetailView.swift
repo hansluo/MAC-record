@@ -23,9 +23,11 @@ struct DetailView: View {
     @State private var summaryError: String?
     /// 纪要生成进度描述
     @State private var summaryProgress: String = ""
+    @State private var transcriptionError: String?
 
     enum DetailTab: String, CaseIterable {
         case asr = "ASR 原文"
+        case timeline = "说话人时间线"
         case summary = "AI 纪要"
     }
 
@@ -56,6 +58,14 @@ struct DetailView: View {
             Button("确定") { summaryError = nil }
         } message: {
             Text(summaryError ?? "")
+        }
+        .alert("转录失败", isPresented: Binding(
+            get: { transcriptionError != nil },
+            set: { if !$0 { transcriptionError = nil } }
+        )) {
+            Button("确定") { transcriptionError = nil }
+        } message: {
+            Text(transcriptionError ?? "")
         }
     }
 
@@ -154,7 +164,7 @@ struct DetailView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(isRetranscribing || isDiarizing || !appState.isModelReady)
+                    .disabled(isRetranscribing || isDiarizing || !appState.isModelReady || !appState.isIdle)
 
                     // 区分说话人
                     Menu {
@@ -178,7 +188,7 @@ struct DetailView: View {
                     }
                     .menuStyle(.borderlessButton)
                     .frame(width: isDiarizing ? 90 : (recording.diarizedText != nil ? 85 : 100))
-                    .disabled(isDiarizing || isRetranscribing || !appState.isModelReady)
+                    .disabled(isDiarizing || isRetranscribing || !appState.isModelReady || !appState.isIdle)
                 }
 
                 // 复制
@@ -203,6 +213,8 @@ struct DetailView: View {
                 switch activeTab {
                 case .asr:
                     asrPanel
+                case .timeline:
+                    timelinePanel
                 case .summary:
                     summaryPanel
                 }
@@ -215,6 +227,21 @@ struct DetailView: View {
     @ViewBuilder
     private var asrPanel: some View {
         let text = recording.plainText ?? ""
+        if recording.transcriptionStatus == "processing" {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("正在使用 \(recordingEngineName) 转录…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.bottom, 12)
+        } else if recording.transcriptionStatus == "failed" {
+            Label(recording.transcriptionError ?? "转录失败，可点击重新转录", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.red)
+                .padding(.bottom, 12)
+        }
+
         if text.isEmpty && recording.diarizedText == nil {
             VStack(spacing: 16) {
                 Image(systemName: "text.badge.xmark")
@@ -232,7 +259,7 @@ struct DetailView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.regular)
-                    .disabled(isRetranscribing)
+                    .disabled(isRetranscribing || !appState.isIdle || !appState.isModelReady)
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 200)
@@ -275,6 +302,67 @@ struct DetailView: View {
             }
             .padding(.top, 8)
         }
+    }
+
+    @ViewBuilder
+    private var timelinePanel: some View {
+        if structuredSegments.isEmpty {
+            VStack(spacing: 12) {
+                Image(systemName: "person.wave.2")
+                    .font(.system(size: 30))
+                    .foregroundStyle(.quaternary)
+                Text("当前转录没有结构化说话人时间线")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text("使用 MOSS-TD 重新转录后可在这里查看")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 180)
+        } else {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                ForEach(structuredSegments) { segment in
+                    HStack(alignment: .top, spacing: 12) {
+                        Text(timeRange(segment))
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 92, alignment: .leading)
+                        Text(segment.speaker ?? "S00")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.blue)
+                            .frame(width: 38, alignment: .leading)
+                        Text(segment.text)
+                            .font(.body)
+                            .textSelection(.enabled)
+                    }
+                    .padding(12)
+                    .background(Color(nsColor: .controlBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var recordingEngineName: String {
+        guard let raw = recording.asrModelId,
+              let id = ASRModelID(rawValue: raw) else { return "当前引擎" }
+        return ModelRegistry.model(for: id).displayName
+    }
+
+    private var structuredSegments: [TranscriptionSegment] {
+        guard let json = recording.structuredSegmentsJSON,
+              let data = json.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([TranscriptionSegment].self, from: data)) ?? []
+    }
+
+    private func timeRange(_ segment: TranscriptionSegment) -> String {
+        "\(formatTimestamp(segment.start))–\(formatTimestamp(segment.end))"
+    }
+
+    private func formatTimestamp(_ seconds: Double) -> String {
+        let total = max(0, Int(seconds))
+        return String(format: "%02d:%02d", total / 60, total % 60)
     }
 
     @ViewBuilder
@@ -327,6 +415,7 @@ struct DetailView: View {
         if !trimmed.isEmpty {
             recording.title = trimmed
             recording.updatedAt = Date()
+            try? modelContext.save()
         }
         isRenaming = false
     }
@@ -341,6 +430,10 @@ struct DetailView: View {
             } else {
                 text = recording.plainText ?? ""
             }
+        case .timeline:
+            text = structuredSegments.map { segment in
+                "[\(formatTimestamp(segment.start))–\(formatTimestamp(segment.end))] \(segment.speaker ?? "S00"): \(segment.text)"
+            }.joined(separator: "\n")
         case .summary:
             text = recording.summaries?.sorted(by: { $0.createdAt > $1.createdAt }).first?.summary ?? ""
         }
@@ -395,6 +488,7 @@ struct DetailView: View {
                     )
                     summary.recording = targetRecording
                     modelContext.insert(summary)
+                    try? modelContext.save()
                     // 强制刷新纪要区域
                     summaryRefreshID = UUID()
                 }
@@ -410,27 +504,17 @@ struct DetailView: View {
     private func retranscribe() {
         guard let audioPath = recording.audioPath else { return }
         isRetranscribing = true
-        let fullPath = AudioFileManager.shared.fullPath(for: audioPath)
-        let targetRecording = recording
+        let audioURL = AudioFileManager.shared.fullURL(for: audioPath)
+        let recordingId = recording.id
 
         Task {
-            defer {
-                Task { @MainActor in self.isRetranscribing = false }
-            }
+            defer { isRetranscribing = false }
             do {
-                if let service = appState.nativeASRService {
-                    let result = try await service.transcribeFile(
-                        audioPath: fullPath,
-                        language: "auto"
-                    )
-                    await MainActor.run {
-                        targetRecording.plainText = result.plainText
-                        targetRecording.detectedLanguage = result.detectedLanguage
-                        targetRecording.updatedAt = Date()
-                    }
-                }
+                let result = try await appState.transcribeFile(at: audioURL)
+                try appState.persistenceCoordinator.apply(result, to: recordingId)
             } catch {
-                print("补转录失败: \(error)")
+                appState.persistenceCoordinator.markFailed(error, recordingId: recordingId)
+                transcriptionError = error.localizedDescription
             }
         }
     }
@@ -467,6 +551,7 @@ struct DetailView: View {
                         targetRecording.diarizedText = result.text
                         targetRecording.diarizedSpeakerCount = Int(result.numSpeakers)
                         targetRecording.updatedAt = Date()
+                        try? modelContext.save()
                     }
                 }
             } catch {

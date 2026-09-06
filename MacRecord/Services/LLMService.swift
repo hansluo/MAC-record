@@ -14,6 +14,18 @@ class LLMService {
     ///   http://127.0.0.1:12314/v1/         → http://127.0.0.1:12314/v1/chat/completions
     ///   http://127.0.0.1:12314             → http://127.0.0.1:12314/v1/chat/completions
     ///   https://api.deepseek.com/v1/chat/completions → 保持不变
+    static func validatedAPIURL(_ value: String) throws -> URL {
+        guard let url = URL(string: value), let scheme = url.scheme?.lowercased() else {
+            throw LLMError.invalidURL
+        }
+        let host = url.host?.lowercased() ?? ""
+        let isLoopback = host == "localhost" || host == "127.0.0.1" || host == "::1"
+        guard scheme == "https" || (scheme == "http" && isLoopback) else {
+            throw LLMError.insecureURL
+        }
+        return url
+    }
+
     static func normalizeAPIURL(_ url: String) -> String {
         var u = url.trimmingCharacters(in: .whitespacesAndNewlines)
         // 移除末尾斜杠
@@ -55,9 +67,7 @@ class LLMService {
         temperature: Double = 0.7
     ) async throws -> String {
         let normalizedURL = Self.normalizeAPIURL(apiURL)
-        guard let url = URL(string: normalizedURL) else {
-            throw LLMError.invalidURL
-        }
+        let url = try Self.validatedAPIURL(normalizedURL)
 
         let fullPrompt: String
         if prompt.contains("{text}") {
@@ -119,9 +129,7 @@ class LLMService {
         temperature: Double = 0.3
     ) async throws -> String {
         let normalizedURL = Self.normalizeAPIURL(apiURL)
-        guard let url = URL(string: normalizedURL) else {
-            throw LLMError.invalidURL
-        }
+        let url = try Self.validatedAPIURL(normalizedURL)
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -188,7 +196,7 @@ class LLMService {
             }
         }
 
-        guard let url = URL(string: modelsURL) else { return nil }
+        guard let url = try? Self.validatedAPIURL(modelsURL) else { return nil }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
@@ -230,9 +238,7 @@ class LLMService {
     func testConnection(apiURL: String, apiKey: String, modelName: String) async -> (success: Bool, message: String) {
         let normalizedURL = Self.normalizeAPIURL(apiURL)
         do {
-            guard let url = URL(string: normalizedURL) else {
-                return (false, "❌ 无效的 API 地址")
-            }
+            let url = try Self.validatedAPIURL(normalizedURL)
 
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
@@ -561,6 +567,7 @@ class LLMService {
 
 enum LLMError: LocalizedError {
     case invalidURL
+    case insecureURL
     case invalidResponse
     case httpError(Int, String)
     case parseError
@@ -570,6 +577,7 @@ enum LLMError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidURL: return "无效的 API 地址"
+        case .insecureURL: return "远程 API 必须使用 HTTPS；HTTP 仅允许 localhost"
         case .invalidResponse: return "无效的响应"
         case .httpError(let code, let body): return "HTTP \(code): \(body.prefix(200))"
         case .parseError: return "响应解析失败"

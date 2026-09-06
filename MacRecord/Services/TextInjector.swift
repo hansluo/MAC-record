@@ -2,7 +2,8 @@ import AppKit
 import ApplicationServices
 
 /// 文本注入器 — 通过剪贴板 + 模拟 Cmd+V 将文字注入到当前聚焦的输入框
-struct TextInjector {
+@MainActor
+enum TextInjector {
 
     /// 将文本注入到当前聚焦的输入框
     /// 流程：备份剪贴板 → 写入文本 → 模拟 Cmd+V → 延迟后恢复剪贴板
@@ -13,7 +14,8 @@ struct TextInjector {
             return
         }
 
-        // 1. 备份当前剪贴板内容
+        // 1. 记录目标应用并完整备份剪贴板内容。
+        let targetPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let pasteboard = NSPasteboard.general
         let backup = backupPasteboard(pasteboard)
 
@@ -31,7 +33,11 @@ struct TextInjector {
             try? await Task.sleep(for: .milliseconds(100))
         }
 
-        // 5. 模拟 Cmd+V 粘贴
+        // 5. 焦点仍在原应用时才粘贴，避免内容进入错误窗口。
+        guard targetPID == NSWorkspace.shared.frontmostApplication?.processIdentifier else {
+            restorePasteboard(pasteboard, from: backup)
+            return
+        }
         simulatePaste()
 
         // 6. 等待粘贴完成后恢复原剪贴板内容
@@ -51,6 +57,7 @@ struct TextInjector {
         }
         guard AccessibilityHelper.isAccessibilityGranted else { return }
 
+        let targetPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let pasteboard = NSPasteboard.general
         let backup = backupPasteboard(pasteboard)
 
@@ -70,6 +77,10 @@ struct TextInjector {
             try? await Task.sleep(for: .milliseconds(100))
         }
 
+        guard targetPID == NSWorkspace.shared.frontmostApplication?.processIdentifier else {
+            restorePasteboard(pasteboard, from: backup)
+            return
+        }
         simulatePaste()
 
         // 3. 恢复剪贴板
@@ -80,24 +91,29 @@ struct TextInjector {
     // MARK: - 剪贴板备份/恢复
 
     private struct PasteboardBackup {
-        let items: [NSPasteboardItem]
-        let types: [NSPasteboard.PasteboardType]
-        let stringContent: String?
+        let items: [[NSPasteboard.PasteboardType: Data]]
     }
 
     private static func backupPasteboard(_ pasteboard: NSPasteboard) -> PasteboardBackup {
-        let stringContent = pasteboard.string(forType: .string)
-        return PasteboardBackup(
-            items: [],
-            types: pasteboard.types ?? [],
-            stringContent: stringContent
-        )
+        let items = (pasteboard.pasteboardItems ?? []).map { item in
+            Dictionary(uniqueKeysWithValues: item.types.compactMap { type in
+                item.data(forType: type).map { (type, $0) }
+            })
+        }
+        return PasteboardBackup(items: items)
     }
 
     private static func restorePasteboard(_ pasteboard: NSPasteboard, from backup: PasteboardBackup) {
         pasteboard.clearContents()
-        if let str = backup.stringContent {
-            pasteboard.setString(str, forType: .string)
+        let restoredItems = backup.items.map { values -> NSPasteboardItem in
+            let item = NSPasteboardItem()
+            for (type, data) in values {
+                item.setData(data, forType: type)
+            }
+            return item
+        }
+        if !restoredItems.isEmpty {
+            pasteboard.writeObjects(restoredItems)
         }
     }
 
