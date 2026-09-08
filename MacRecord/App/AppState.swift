@@ -51,6 +51,7 @@ class AppState: ObservableObject {
     @Published var modelStatus: String = "⏳ 正在启动 ASR 引擎..."
     @Published var isModelReady: Bool = false
     @Published var transcriptionStatus: String?
+    @Published private(set) var activeTranscriptionIds: Set<UUID> = []
 
     // MARK: - ASR 配置
     @Published var asrConfigStore = ASRConfigStore()
@@ -92,9 +93,17 @@ class AppState: ObservableObject {
         recordingMode == .idle
     }
 
+    var hasActiveTranscriptions: Bool {
+        !activeTranscriptionIds.isEmpty
+    }
+
+    func isTranscribing(recordingId: UUID) -> Bool {
+        activeTranscriptionIds.contains(recordingId)
+    }
+
     /// 文件型 ASR 不要求实时引擎常驻；只要模型已安装即可录音后转录。
     var canStartRecording: Bool {
-        guard isIdle else { return false }
+        guard isIdle, !hasActiveTranscriptions else { return false }
         let model = selectedASRModel
         if model.capabilities.supportsRealtime {
             return isModelReady && ModelRegistry.isModelDownloaded(model.id)
@@ -105,6 +114,7 @@ class AppState: ObservableObject {
 
     var canTranscribeFile: Bool {
         guard isIdle,
+              !hasActiveTranscriptions,
               selectedASRModel.capabilities.supportsFileTranscription,
               ModelRegistry.isModelDownloaded(selectedASRModel.id) else { return false }
         return selectedASRModel.capabilities.supportsRealtime ? isModelReady : true
@@ -211,8 +221,10 @@ class AppState: ObservableObject {
     }
 
     func switchASRModel(to modelId: ASRModelID) async {
-        guard isIdle else {
-            modelStatus = "录音期间不能切换识别引擎"
+        guard isIdle, !hasActiveTranscriptions else {
+            modelStatus = hasActiveTranscriptions
+                ? "文件转录期间不能切换识别引擎"
+                : "录音期间不能切换识别引擎"
             return
         }
         if asrConfigStore.selectedModelId == modelId {
@@ -267,32 +279,51 @@ class AppState: ObservableObject {
         transcriptionTasks[recordingId]?.cancel()
         transcriptionTasks[recordingId] = task
         transcriptionTaskGenerations[recordingId] = generation
+        activeTranscriptionIds.insert(recordingId)
+        transcriptionStatus = "转录队列处理中"
     }
 
     func unregisterTranscriptionTask(generation: UUID, recordingId: UUID) {
         guard transcriptionTaskGenerations[recordingId] == generation else { return }
         transcriptionTasks.removeValue(forKey: recordingId)
         transcriptionTaskGenerations.removeValue(forKey: recordingId)
+        activeTranscriptionIds.remove(recordingId)
         transcriptionStatus = transcriptionTasks.isEmpty ? nil : "转录队列处理中"
     }
 
-    func retranscribe(recordingId: UUID, audioURL: URL) async throws {
+    func startRetranscription(recordingId: UUID, audioURL: URL) {
         let generation = beginTranscription(for: recordingId)
-        persistenceCoordinator.markProcessing(recordingId: recordingId, engineId: asrConfigStore.selectedModelId)
-        defer { finishTranscription(generation, for: recordingId) }
-        do {
-            let result = try await transcribeFile(at: audioURL)
-            guard isCurrentTranscription(generation, for: recordingId) else {
-                throw ASRCoordinationError.superseded
+        persistenceCoordinator.markProcessing(
+            recordingId: recordingId,
+            engineId: asrConfigStore.selectedModelId
+        )
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.finishTranscription(generation, for: recordingId)
+                self.unregisterTranscriptionTask(
+                    generation: generation,
+                    recordingId: recordingId
+                )
             }
-            try persistenceCoordinator.apply(result, to: recordingId)
-        } catch {
-            guard isCurrentTranscription(generation, for: recordingId) else {
-                throw ASRCoordinationError.superseded
+            do {
+                let result = try await self.transcriptionQueue.enqueue {
+                    try await self.transcribeFile(at: audioURL)
+                }
+                guard self.isCurrentTranscription(generation, for: recordingId) else { return }
+                try self.persistenceCoordinator.apply(result, to: recordingId)
+            } catch is CancellationError {
+                guard self.isCurrentTranscription(generation, for: recordingId) else { return }
+                self.persistenceCoordinator.markCancelled(recordingId: recordingId)
+            } catch ASRCoordinationError.superseded {
+                // 更新的请求已经接管该录音。
+            } catch {
+                guard self.isCurrentTranscription(generation, for: recordingId) else { return }
+                self.persistenceCoordinator.markFailed(error, recordingId: recordingId)
+                self.modelStatus = "❌ 转录失败: \(error.localizedDescription)"
             }
-            persistenceCoordinator.markFailed(error, recordingId: recordingId)
-            throw error
         }
+        registerTranscriptionTask(task, generation: generation, recordingId: recordingId)
     }
 
     func transcribeFile(at url: URL, hotwords: [String] = []) async throws -> UnifiedTranscriptionResult {
@@ -318,15 +349,20 @@ class AppState: ObservableObject {
         }
     }
 
+    func cancelTranscription(recordingId: UUID) {
+        transcriptionGenerations.removeValue(forKey: recordingId)
+        persistenceCoordinator.markCancelled(recordingId: recordingId)
+        transcriptionTasks.removeValue(forKey: recordingId)?.cancel()
+        transcriptionTaskGenerations.removeValue(forKey: recordingId)
+        activeTranscriptionIds.remove(recordingId)
+        transcriptionStatus = transcriptionTasks.isEmpty ? nil : "转录队列处理中"
+    }
+
     func cancelTranscription() async {
-        for recordingId in transcriptionTasks.keys {
-            transcriptionGenerations[recordingId] = UUID()
-            persistenceCoordinator.markCancelled(recordingId: recordingId)
+        let recordingIds = Array(transcriptionTasks.keys)
+        for recordingId in recordingIds {
+            cancelTranscription(recordingId: recordingId)
         }
-        for task in transcriptionTasks.values { task.cancel() }
-        transcriptionTasks.removeAll()
-        transcriptionTaskGenerations.removeAll()
-        transcriptionStatus = nil
     }
 }
 

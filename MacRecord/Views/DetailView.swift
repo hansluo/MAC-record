@@ -13,7 +13,6 @@ struct DetailView: View {
     @State private var isRenaming = false
     @State private var editTitle = ""
     @State private var isDiarizing = false
-    @State private var isRetranscribing = false
     @State private var expectedSpeakers: Int = 0  // 0=自动检测
     @State private var diarizationProgress: Float = 0  // 0~1 进度
     @State private var diarizingRecordingId: UUID?      // 正在 diarize 的录音 ID
@@ -23,12 +22,15 @@ struct DetailView: View {
     @State private var summaryError: String?
     /// 纪要生成进度描述
     @State private var summaryProgress: String = ""
-    @State private var transcriptionError: String?
 
     enum DetailTab: String, CaseIterable {
         case asr = "ASR 原文"
         case timeline = "说话人时间线"
         case summary = "AI 纪要"
+    }
+
+    private var isRetranscribing: Bool {
+        appState.isTranscribing(recordingId: recording.id)
     }
 
     var body: some View {
@@ -58,14 +60,6 @@ struct DetailView: View {
             Button("确定") { summaryError = nil }
         } message: {
             Text(summaryError ?? "")
-        }
-        .alert("转录失败", isPresented: Binding(
-            get: { transcriptionError != nil },
-            set: { if !$0 { transcriptionError = nil } }
-        )) {
-            Button("确定") { transcriptionError = nil }
-        } message: {
-            Text(transcriptionError ?? "")
         }
     }
 
@@ -519,20 +513,10 @@ struct DetailView: View {
 
     private func retranscribe() {
         guard let audioPath = recording.audioPath else { return }
-        isRetranscribing = true
-        let audioURL = AudioFileManager.shared.fullURL(for: audioPath)
-        let recordingId = recording.id
-
-        Task {
-            defer { isRetranscribing = false }
-            do {
-                try await appState.retranscribe(recordingId: recordingId, audioURL: audioURL)
-            } catch ASRCoordinationError.superseded {
-                // 新请求已接管该录音，不显示旧任务错误。
-            } catch {
-                transcriptionError = error.localizedDescription
-            }
-        }
+        appState.startRetranscription(
+            recordingId: recording.id,
+            audioURL: AudioFileManager.shared.fullURL(for: audioPath)
+        )
     }
 
     private func performDiarization() {

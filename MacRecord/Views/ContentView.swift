@@ -166,6 +166,7 @@ struct ContentView: View {
                 }
                 .pickerStyle(.menu)
                 .controlSize(.small)
+                .disabled(appState.hasActiveTranscriptions)
             }
 
             if appState.isRecording {
@@ -311,6 +312,7 @@ struct ContentView: View {
         if let selectedId = appState.selectedRecordingId,
            let recording = recordings.first(where: { $0.id == selectedId }) {
             DetailView(recording: recording)
+                .id(recording.id)
         } else {
             emptyState
         }
@@ -418,6 +420,7 @@ struct ContentView: View {
                                 }
                             }
                         }
+                        .disabled(appState.hasActiveTranscriptions)
                     }
                 }
             } label: {
@@ -498,10 +501,9 @@ struct ContentView: View {
             )
             importedRecordingId = recordingId
             appState.selectedRecordingId = recordingId
-            importProgress = "正在使用 \(appState.selectedASRModel.displayName) 转录…"
+            importProgress = "已加入 \(appState.selectedASRModel.displayName) 转录队列"
             let managedURL = try appState.persistenceCoordinator.audioURL(for: recordingId)
-            let result = try await appState.transcribeFile(at: managedURL)
-            try appState.persistenceCoordinator.apply(result, to: recordingId)
+            appState.startRetranscription(recordingId: recordingId, audioURL: managedURL)
         } catch {
             if let importedRecordingId {
                 appState.persistenceCoordinator.markFailed(error, recordingId: importedRecordingId)

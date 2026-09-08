@@ -79,8 +79,11 @@ class VoiceInputService: ObservableObject {
         state = .idle
     }
 
-    func reloadConfig() {
+    func reloadConfig() async {
         hotkeyManager.stop()
+        if state == .starting || state == .recording {
+            await stopVoiceInput()
+        }
         hotkeyManager.hotkeyType = configStore.hotkeyType
         hotkeyManager.longPressThresholdMs = configStore.longPressThresholdMs
         hotkeyManager.isEnabled = configStore.isEnabled
@@ -96,6 +99,12 @@ class VoiceInputService: ObservableObject {
 
         guard appState.isIdle else {
             print("[VoiceInput] 正常录音进行中，忽略语音输入")
+            return
+        }
+
+        guard !appState.hasActiveTranscriptions else {
+            errorMessage = "文件转录进行中，请完成或取消后再使用语音输入"
+            VoiceInputIndicatorWindow.shared.showError(message: "文件转录进行中")
             return
         }
 

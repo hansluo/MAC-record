@@ -19,6 +19,27 @@ final class ModelDownloadObservationTests: XCTestCase {
     }
 
     @MainActor
+    func testRegisteredTranscriptionTracksRecordingAndBlocksNewRecording() async throws {
+        let schema = Schema([Recording.self, AISummary.self])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let appState = AppState(modelContainer: container)
+        let recordingId = UUID()
+        let generation = appState.beginTranscription(for: recordingId)
+        let task = Task<Void, Never> { try? await Task.sleep(for: .seconds(10)) }
+
+        appState.registerTranscriptionTask(task, generation: generation, recordingId: recordingId)
+        XCTAssertTrue(appState.isTranscribing(recordingId: recordingId))
+        XCTAssertTrue(appState.hasActiveTranscriptions)
+        XCTAssertFalse(appState.canStartRecording)
+
+        appState.cancelTranscription(recordingId: recordingId)
+        XCTAssertFalse(appState.isTranscribing(recordingId: recordingId))
+        XCTAssertFalse(appState.hasActiveTranscriptions)
+        XCTAssertNil(appState.transcriptionStatus)
+    }
+
+    @MainActor
     func testNestedDownloadStateInvalidatesAppState() async throws {
         let schema = Schema([Recording.self, AISummary.self])
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)

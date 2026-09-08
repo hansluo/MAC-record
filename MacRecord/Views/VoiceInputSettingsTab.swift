@@ -203,6 +203,6 @@ struct VoiceInputSettingsTab: View {
 
     private func saveAndReload() {
         appState.voiceInputService.configStore.save()
-        appState.voiceInputService.reloadConfig()
+        Task { await appState.voiceInputService.reloadConfig() }
     }
 }

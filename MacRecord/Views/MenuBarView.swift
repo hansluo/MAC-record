@@ -26,7 +26,7 @@ struct MenuBarView: View {
                 set: { newValue in
                     appState.voiceInputService.configStore.isEnabled = newValue
                     appState.voiceInputService.configStore.save()
-                    appState.voiceInputService.reloadConfig()
+                    Task { await appState.voiceInputService.reloadConfig() }
                 }
             )) {
                 Label("语音输入", systemImage: "mic.badge.plus")

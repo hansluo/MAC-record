@@ -48,6 +48,7 @@ struct ASRModelTab: View {
                         isSelected: appState.asrConfigStore.selectedModelId == modelInfo.id,
                         downloadState: appState.modelDownloadManager.downloads[modelInfo.id] ?? .idle,
                         isDownloaded: appState.modelDownloadManager.isDownloaded(modelInfo.id),
+                        isSelectionEnabled: !appState.hasActiveTranscriptions,
                         onSelect: {
                             Task { await appState.switchASRModel(to: modelInfo.id) }
                         },
@@ -83,6 +84,7 @@ struct ASRModelCard: View {
     let isSelected: Bool
     let downloadState: ModelDownloadManager.DownloadState
     let isDownloaded: Bool
+    let isSelectionEnabled: Bool
     let onSelect: () -> Void
     let onDownload: () -> Void
     let onCancel: () -> Void
@@ -218,6 +220,7 @@ struct ASRModelCard: View {
                         Button("选择") { onSelect() }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
+                            .disabled(!isSelectionEnabled)
                         if !modelInfo.isBuiltin {
                             Button(role: .destructive) { onDelete() } label: {
                                 Image(systemName: "trash")
