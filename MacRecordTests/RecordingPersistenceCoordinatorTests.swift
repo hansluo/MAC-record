@@ -16,13 +16,13 @@ final class RecordingPersistenceCoordinatorTests: XCTestCase {
             title: "测试录音",
             duration: 3,
             recordingURL: nil,
-            engineId: .mossTranscribeDiarize09B
+            engineId: .senseVoiceInt8
         )
         let result = UnifiedTranscriptionResult(
             text: "你好",
             language: "zh",
             segments: [.init(start: 0, end: 1, speaker: "S01", text: "你好")],
-            engineId: ASRModelID.mossTranscribeDiarize09B.rawValue,
+            engineId: ASRModelID.senseVoiceInt8.rawValue,
             modelVersion: "test",
             duration: 1,
             elapsed: 0.1,

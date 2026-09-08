@@ -12,7 +12,7 @@ extension AppState {
     }
 
     func startRecordingSession() async {
-        guard isModelReady, isIdle else { return }
+        guard canStartRecording else { return }
 
         let sessionId = UUID()
         stopRequestedWhileStarting = false
@@ -57,7 +57,7 @@ extension AppState {
             recordingMode = .normalRecording(sessionId: sessionId, paused: false)
             transcriptionStatus = capabilities.supportsRealtime
                 ? "正在实时转录"
-                : "录音结束后使用 MOSS-TD 转录"
+                : "录音结束后使用当前引擎转录"
             if stopRequestedWhileStarting {
                 stopRequestedWhileStarting = false
                 await stopRecordingSession()
@@ -162,29 +162,35 @@ extension AppState {
                 try persistenceCoordinator.apply(result, to: recordingId)
             } else {
                 recordingMode = .idle
-                transcriptionStatus = "MOSS-TD 转录队列处理中"
+                transcriptionStatus = "转录队列处理中"
+                let generation = beginTranscription(for: recordingId)
                 let task = Task { @MainActor [weak self] in
                     guard let self else { return }
                     defer {
-                        self.transcriptionTasks.removeValue(forKey: recordingId)
-                        self.transcriptionStatus = self.transcriptionTasks.isEmpty
-                            ? nil
-                            : "MOSS-TD 转录队列处理中"
+                        self.finishTranscription(generation, for: recordingId)
+                        self.unregisterTranscriptionTask(
+                            generation: generation,
+                            recordingId: recordingId
+                        )
                     }
                     do {
                         let audioURL = try self.persistenceCoordinator.audioURL(for: recordingId)
-                        let runner = self.mossSidecarRunner
-                        let hotwords = self.asrConfigStore.mossHotwords
                         let result = try await self.transcriptionQueue.enqueue {
-                            try await runner.transcribeFile(at: audioURL, hotwords: hotwords)
+                            try await self.transcribeFile(at: audioURL)
                         }
+                        guard self.isCurrentTranscription(generation, for: recordingId) else { return }
                         try self.persistenceCoordinator.apply(result, to: recordingId)
                     } catch {
+                        guard self.isCurrentTranscription(generation, for: recordingId) else { return }
                         self.persistenceCoordinator.markFailed(error, recordingId: recordingId)
                         self.modelStatus = "❌ 转录失败: \(error.localizedDescription)"
                     }
                 }
-                transcriptionTasks[recordingId] = task
+                registerTranscriptionTask(
+                    task,
+                    generation: generation,
+                    recordingId: recordingId
+                )
             }
         } catch {
             if let persistedRecordingId {

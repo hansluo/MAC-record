@@ -1,0 +1,39 @@
+import Combine
+import SwiftData
+import XCTest
+@testable import MacRecord
+
+final class ModelDownloadObservationTests: XCTestCase {
+    @MainActor
+    func testRefreshDoesNotRepublishUnchangedDownloadedModels() async {
+        let manager = ModelDownloadManager()
+        var publishCount = 0
+        let cancellable = manager.$downloadedModelIds.dropFirst().sink { _ in publishCount += 1 }
+
+        manager.refreshDownloadedModels()
+        manager.refreshDownloadedModels()
+        await Task.yield()
+
+        XCTAssertEqual(publishCount, 0)
+        cancellable.cancel()
+    }
+
+    @MainActor
+    func testNestedDownloadStateInvalidatesAppState() async throws {
+        let schema = Schema([Recording.self, AISummary.self])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let appState = AppState(modelContainer: container)
+        try await Task.sleep(for: .milliseconds(50))
+        let expectation = expectation(description: "AppState forwards model download state")
+        var cancellable: AnyCancellable?
+
+        cancellable = appState.objectWillChange.sink {
+            expectation.fulfill()
+        }
+
+        appState.modelDownloadManager.downloads[.qwen3ASR06BInt8] = .downloading(progress: 0.1)
+        await fulfillment(of: [expectation], timeout: 1)
+        cancellable?.cancel()
+    }
+}

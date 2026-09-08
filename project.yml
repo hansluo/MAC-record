@@ -16,6 +16,8 @@ schemes:
     test:
       targets:
         - MacRecordTests
+      environmentVariables:
+        MACRECORD_TESTING: "1"
 
 targets:
   MacRecord:
@@ -29,8 +31,6 @@ targets:
       - path: MacRecord/Resources/vad
         buildPhase: resources
       - path: MacRecord/Resources/speaker-diarization
-        buildPhase: resources
-      - path: MacRecord/Resources/moss
         buildPhase: resources
     dependencies:
       - framework: Frameworks/sherpa-onnx.xcframework
@@ -65,6 +65,11 @@ targets:
           - "Accelerate"
           - "-framework"
           - "Foundation"
+      configs:
+        Debug:
+          CONFIGURATION_BUILD_DIR: "$(PROJECT_DIR)/build.noindex/Xcode/Debug"
+        Release:
+          CONFIGURATION_BUILD_DIR: "$(PROJECT_DIR)/build.noindex/Xcode/Release"
 
   MacRecordTests:
     type: bundle.unit-test
@@ -82,3 +87,8 @@ targets:
         ARCHS: arm64
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Mac-Record.app/Contents/MacOS/Mac-Record"
         BUNDLE_LOADER: "$(TEST_HOST)"
+      configs:
+        Debug:
+          CONFIGURATION_BUILD_DIR: "$(PROJECT_DIR)/build.noindex/Xcode/Debug"
+        Release:
+          CONFIGURATION_BUILD_DIR: "$(PROJECT_DIR)/build.noindex/Xcode/Release"

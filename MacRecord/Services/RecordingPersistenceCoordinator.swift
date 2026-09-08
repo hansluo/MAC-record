@@ -85,6 +85,15 @@ final class RecordingPersistenceCoordinator {
         return AudioFileManager.shared.fullURL(for: path)
     }
 
+    func markProcessing(recordingId: UUID, engineId: ASRModelID) {
+        guard let recording = try? recording(for: recordingId) else { return }
+        recording.asrModelId = engineId.rawValue
+        recording.transcriptionStatus = "processing"
+        recording.transcriptionError = nil
+        recording.updatedAt = Date()
+        try? modelContext.save()
+    }
+
     func apply(_ result: UnifiedTranscriptionResult, to recordingId: UUID) throws {
         guard let recording = try recording(for: recordingId) else {
             throw RecordingPersistenceError.recordingNotFound
@@ -99,6 +108,9 @@ final class RecordingPersistenceCoordinator {
         if let speakerText = result.speakerText {
             recording.diarizedText = speakerText
             recording.diarizedSpeakerCount = result.speakerCount
+        } else {
+            recording.diarizedText = nil
+            recording.diarizedSpeakerCount = nil
         }
         try modelContext.save()
     }
@@ -107,6 +119,14 @@ final class RecordingPersistenceCoordinator {
         guard let recording = try? recording(for: recordingId) else { return }
         recording.transcriptionStatus = "failed"
         recording.transcriptionError = error.localizedDescription
+        recording.updatedAt = Date()
+        try? modelContext.save()
+    }
+
+    func markCancelled(recordingId: UUID) {
+        guard let recording = try? recording(for: recordingId) else { return }
+        recording.transcriptionStatus = "failed"
+        recording.transcriptionError = "转录已取消，可重新转录"
         recording.updatedAt = Date()
         try? modelContext.save()
     }

@@ -8,17 +8,6 @@ enum TagColor {
 /// ASR 配置存储 — 基于模型 ID 的选择机制
 class ASRConfigStore: ObservableObject {
     @Published var selectedModelId: ASRModelID = .senseVoiceInt8
-    @Published var mossHotwords: [String] = []
-
-    var mossHotwordsText: String {
-        get { mossHotwords.joined(separator: ", ") }
-        set {
-            mossHotwords = newValue
-                .split(whereSeparator: { $0 == "," || $0 == "，" || $0.isNewline })
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-        }
-    }
 
     private let configURL: URL
 
@@ -29,7 +18,11 @@ class ASRConfigStore: ObservableObject {
         let appDir = appSupport.appendingPathComponent("MacRecord", isDirectory: true)
         try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
         configURL = appDir.appendingPathComponent("asr_config.json")
-        load()
+        let environment = ProcessInfo.processInfo.environment
+        if environment["XCTestConfigurationFilePath"] == nil,
+           environment["MACRECORD_TESTING"] != "1" {
+            load()
+        }
     }
 
     /// 当前选中的模型信息
@@ -38,10 +31,7 @@ class ASRConfigStore: ObservableObject {
     }
 
     func save() {
-        let data = ASRConfigData(
-            selectedModelId: selectedModelId.rawValue,
-            mossHotwords: mossHotwords
-        )
+        let data = ASRConfigData(selectedModelId: selectedModelId.rawValue)
         if let jsonData = try? JSONEncoder().encode(data) {
             try? jsonData.write(to: configURL)
         }
@@ -53,11 +43,9 @@ class ASRConfigStore: ObservableObject {
         if let modelId = ASRModelID(rawValue: config.selectedModelId) {
             selectedModelId = modelId
         }
-        mossHotwords = config.mossHotwords ?? []
     }
 }
 
 private struct ASRConfigData: Codable {
     var selectedModelId: String
-    var mossHotwords: [String]?
 }

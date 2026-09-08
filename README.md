@@ -2,15 +2,14 @@
 
 > macOS 原生语音转写工具 — 录音、实时转文字、AI 整理纪要、语音输入法，一个 App 全搞定。
 
-所有数据本地处理，隐私安全。基于 SwiftUI、sherpa-onnx 与 MLX，支持 SenseVoice、Qwen3-ASR 和 MOSS-Transcribe-Diarize 多引擎识别。
+所有数据本地处理，隐私安全。基于 SwiftUI + sherpa-onnx 离线 ASR 引擎，Apple Silicon 原生运行。
 
 ## 核心能力
 
 | 功能 | 说明 |
 |------|------|
-| 🎙️ **麦克风录音** | SenseVoice/Qwen 边录边转；MOSS-TD 支持录音结束后高质量结构化转录 |
+| 🎙️ **麦克风录音** | SenseVoice、Qwen3-ASR 0.6B/1.7B 离线识别，一边录音一边自动出文字 |
 | 🔊 **Self 记录** | 录电脑播放的声音（会议、网课、视频），基于 ScreenCaptureKit |
-| 👥 **MOSS 会议转录** | Apple Silicon 本地生成说话人标签、时间戳，并支持人名和领域热词提示 |
 | ✨ **AI 纪要** | 对转写文字一键生成结构化会议纪要，支持超长录音自动分段+整合 |
 | ⌨️ **语音输入** | 在任何 App 中长按热键说话，松开自动输入文字，AI 纠错 |
 
@@ -30,7 +29,7 @@ git clone https://github.com/hansluo/MAC-record.git
 cd MAC-record
 
 # 2. 下载依赖的大文件（不包含在 Git 中）
-# - sherpa-onnx.xcframework (73MB) → 放入 Frameworks/
+# - sherpa-onnx 1.13.7 静态 xcframework（约 85MB）→ 放入 Frameworks/
 # - SenseVoice 模型文件 (228MB) → 放入 MacRecord/Resources/sensevoice-model/
 
 # 3. 生成 Xcode 项目并构建
@@ -55,19 +54,10 @@ xcodebuild -scheme MacRecord build
 
 **亮点**：
 - 边录边转，不用等录完再处理
+- 可在设置中下载并切换 Qwen3-ASR 1.7B INT8，获得更高精度的中文、方言和复杂会议识别
 - 内置音频增强（4阶 Butterworth 高通 + vDSP FFT 谱减法降噪 + 动态范围压缩）
 - VAD 语音活动检测，自动分句
 - 电脑休眠时自动暂停，唤醒后自动恢复并通知
-
-### 👥 MOSS-Transcribe-Diarize
-
-在「设置 → 模型」中安装 `MOSS-TD 0.9B MLX`，然后可在录音前、导入或重新转录时选择该引擎。MOSS-TD 第一阶段为文件型引擎：录音期间保存音频，结束后生成带说话人标签和时间戳的结构化结果。
-
-- 默认使用社区转换的 MLX 8-bit 权重，运行环境和模型均保存在 Application Support。
-- 首次安装需要 Python 3.10+，首次转录会下载约 1.2 GB 权重。
-- 模型推理完全在本机 Apple Silicon 上运行，不上传音频。
-- 官方宣称的超长音频、重叠语音和速度仍受设备统一内存与具体录音影响。
-- MOSS-TD 不用于全局实时语音输入；该功能请选择 SenseVoice 或 Qwen。
 
 ### 🔊 Self 记录（录电脑声音）
 

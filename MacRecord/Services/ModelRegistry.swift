@@ -6,7 +6,6 @@ import Foundation
 enum ASRModelFamily: String, Codable {
     case senseVoice
     case qwen3ASR
-    case mossTranscribeDiarize
     case appleSpeech
 }
 
@@ -15,9 +14,16 @@ enum ASRModelID: String, Codable, CaseIterable, Identifiable {
     case senseVoiceInt8 = "sensevoice-int8"
     case senseVoiceFull = "sensevoice-full"
     case qwen3ASR06BInt8 = "qwen3-asr-0.6b-int8"
-    case mossTranscribeDiarize09B = "moss-transcribe-diarize-0.9b-mlx-8bit"
+    case qwen3ASR17BInt8 = "qwen3-asr-1.7b-int8"
 
     var id: String { rawValue }
+}
+
+struct RemoteModelFile: Sendable {
+    let relativePath: String
+    let downloadURL: String
+    let expectedSize: Int64
+    let sha256: String
 }
 
 /// ASR 模型元数据
@@ -34,13 +40,59 @@ struct ASRModelInfo {
     let tags: [(String, TagColor)]
     let capabilities: ASRCapabilities
     let isBuiltin: Bool            // 是否内置在 App Bundle 中
-    let downloadURL: String?       // 下载地址（内置模型为 nil）
+    let downloadURL: String?       // 单压缩包下载地址（内置/多文件模型为 nil）
     let archiveName: String?       // 压缩包名（用于解压）
+    let downloadFiles: [RemoteModelFile]
+
+    init(
+        id: ASRModelID,
+        displayName: String,
+        family: ASRModelFamily,
+        provider: String,
+        description: String,
+        languages: String,
+        modelSize: String,
+        downloadSizeBytes: Int64,
+        iconName: String,
+        tags: [(String, TagColor)],
+        capabilities: ASRCapabilities,
+        isBuiltin: Bool,
+        downloadURL: String?,
+        archiveName: String?,
+        downloadFiles: [RemoteModelFile] = []
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.family = family
+        self.provider = provider
+        self.description = description
+        self.languages = languages
+        self.modelSize = modelSize
+        self.downloadSizeBytes = downloadSizeBytes
+        self.iconName = iconName
+        self.tags = tags
+        self.capabilities = capabilities
+        self.isBuiltin = isBuiltin
+        self.downloadURL = downloadURL
+        self.archiveName = archiveName
+        self.downloadFiles = downloadFiles
+    }
 }
 
 // MARK: - 模型注册表
 
 struct ModelRegistry {
+    private static let qwen3ASR17BRevision = "69eb686fd94a4a865bb5340a3d6ac0d7f1fec0d5"
+    private static let qwen3ASR17BBaseURL = "https://huggingface.co/thieunv/sherpa-onnx-qwen3-asr-1.7B-int8/resolve/\(qwen3ASR17BRevision)"
+    private static let qwen3ASR17BFiles: [RemoteModelFile] = [
+        RemoteModelFile(relativePath: "conv_frontend.onnx", downloadURL: "\(qwen3ASR17BBaseURL)/conv_frontend.onnx", expectedSize: 48_080_441, sha256: "3cb27a9fe94d95c938e476f2012b21aba2ec0bfceef33b0e58acd208946bafdd"),
+        RemoteModelFile(relativePath: "encoder.int8.onnx", downloadURL: "\(qwen3ASR17BBaseURL)/encoder.int8.onnx", expectedSize: 314_222_162, sha256: "a5deedae034ece715de8ed204378d8c77f889af3a60c2566581135e84cced7cd"),
+        RemoteModelFile(relativePath: "decoder.int8.onnx", downloadURL: "\(qwen3ASR17BBaseURL)/decoder.int8.onnx", expectedSize: 2_037_458_645, sha256: "c43c853fa6e97d08365cb8a5502b360b595cd43c00dc60e4d8ca7cc18cad460b"),
+        RemoteModelFile(relativePath: "tokenizer/merges.txt", downloadURL: "\(qwen3ASR17BBaseURL)/tokenizer/merges.txt", expectedSize: 1_671_853, sha256: "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"),
+        RemoteModelFile(relativePath: "tokenizer/tokenizer_config.json", downloadURL: "\(qwen3ASR17BBaseURL)/tokenizer/tokenizer_config.json", expectedSize: 12_487, sha256: "4942d005604266809309cabc9f4e9cb89ce855d59b14681fdc0e1cc62ea26c4c"),
+        RemoteModelFile(relativePath: "tokenizer/vocab.json", downloadURL: "\(qwen3ASR17BBaseURL)/tokenizer/vocab.json", expectedSize: 2_776_833, sha256: "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"),
+    ]
+
     /// 所有已注册模型
     static let allModels: [ASRModelInfo] = [
         ASRModelInfo(
@@ -92,20 +144,21 @@ struct ModelRegistry {
             archiveName: "sherpa-onnx-qwen3-asr-0.6B-int8-2025-03-25"
         ),
         ASRModelInfo(
-            id: .mossTranscribeDiarize09B,
-            displayName: "MOSS-TD 0.9B MLX",
-            family: .mossTranscribeDiarize,
-            provider: "OpenMOSS",
-            description: "录音结束后生成带说话人标签和时间戳的结构化转录",
-            languages: "50+ 语言",
-            modelSize: "约 1.2 GB",
-            downloadSizeBytes: 1_200_000_000,
-            iconName: "person.wave.2.fill",
-            tags: [("OpenMOSS", .blue), ("MLX", .green), ("文件转录", .purple)],
-            capabilities: .moss,
+            id: .qwen3ASR17BInt8,
+            displayName: "Qwen3-ASR 1.7B INT8",
+            family: .qwen3ASR,
+            provider: "Alibaba Qwen",
+            description: "更高精度的 Qwen3 语音识别模型，适合中文、方言和复杂会议录音",
+            languages: "30+ 语言, 22 种中文方言/口音",
+            modelSize: "2.24 GB",
+            downloadSizeBytes: 2_404_222_421,
+            iconName: "waveform.badge.magnifyingglass",
+            tags: [("Qwen", .orange), ("高精度", .purple), ("INT8", .blue)],
+            capabilities: .native,
             isBuiltin: false,
             downloadURL: nil,
-            archiveName: nil
+            archiveName: nil,
+            downloadFiles: qwen3ASR17BFiles
         ),
     ]
 
@@ -133,9 +186,11 @@ struct ModelRegistry {
         if info.isBuiltin {
             return modelPaths(for: id) != nil
         }
+        return validateModelFiles(for: id, in: modelDirectory(for: id))
+    }
 
-        let modelDir = modelDirectory(for: id)
-        switch info.family {
+    static func validateModelFiles(for id: ASRModelID, in modelDir: URL) -> Bool {
+        switch model(for: id).family {
         case .senseVoice:
             return FileManager.default.fileExists(
                 atPath: modelDir.appendingPathComponent("model.onnx").path
@@ -148,8 +203,6 @@ struct ModelRegistry {
                 modelDir.appendingPathComponent("tokenizer", isDirectory: true),
             ]
             return requiredPaths.allSatisfy { FileManager.default.fileExists(atPath: $0.path) }
-        case .mossTranscribeDiarize:
-            return MOSSRuntimeEnvironment.isInstalled
         case .appleSpeech:
             return true
         }
@@ -164,7 +217,7 @@ struct ModelRegistry {
             return senseVoicePaths(for: id, isInt8: id == .senseVoiceInt8)
         case .qwen3ASR:
             return qwen3ASRPaths(for: id)
-        case .mossTranscribeDiarize, .appleSpeech:
+        case .appleSpeech:
             return nil
         }
     }
@@ -227,7 +280,7 @@ struct ModelRegistry {
         let decoder = modelDir.appendingPathComponent("decoder.int8.onnx").path
         let tokenizer = modelDir.appendingPathComponent("tokenizer").path
 
-        guard FileManager.default.fileExists(atPath: decoder) else { return nil }
+        guard validateModelFiles(for: id, in: modelDir) else { return nil }
 
         return .qwen3ASR(
             convFrontendPath: convFrontend,

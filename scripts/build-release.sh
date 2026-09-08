@@ -77,6 +77,7 @@ ok "项目生成完成"
 info "清理旧构建..."
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
+touch "$BUILD_DIR/.metadata_never_index"
 
 # ---- Step 3: Archive ----
 info "开始 Archive（Release 模式）..."

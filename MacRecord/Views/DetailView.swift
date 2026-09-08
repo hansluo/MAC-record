@@ -164,31 +164,43 @@ struct DetailView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(isRetranscribing || isDiarizing || !appState.isModelReady || !appState.isIdle)
+                    .disabled(
+                        isRetranscribing
+                            || isDiarizing
+                            || recording.transcriptionStatus == "processing"
+                            || !appState.canTranscribeFile
+                    )
 
-                    // 区分说话人
-                    Menu {
-                        Button("自动检测人数") {
-                            expectedSpeakers = 0
-                            performDiarization()
-                        }
-                        Divider()
-                        ForEach(2...8, id: \.self) { n in
-                            Button("\(n) 人") {
-                                expectedSpeakers = n
+                    // 支持说话人标签的引擎会在转录时直接生成；其他模型使用独立分离。
+                    if appState.selectedASRModel.capabilities.supportsSpeakerLabels {
+                        Label("自动区分说话人", systemImage: "person.2.badge.gearshape")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .help("当前引擎会在重新转录时同时生成说话人标签和时间戳")
+                    } else {
+                        Menu {
+                            Button("自动检测人数") {
+                                expectedSpeakers = 0
                                 performDiarization()
                             }
+                            Divider()
+                            ForEach(2...8, id: \.self) { n in
+                                Button("\(n) 人") {
+                                    expectedSpeakers = n
+                                    performDiarization()
+                                }
+                            }
+                        } label: {
+                            Label(
+                                isDiarizing ? "识别中…" : (recording.diarizedText != nil ? "重新区分" : "区分说话人"),
+                                systemImage: "person.2.wave.2"
+                            )
+                            .font(.caption)
                         }
-                    } label: {
-                        Label(
-                            isDiarizing ? "识别中…" : (recording.diarizedText != nil ? "重新区分" : "区分说话人"),
-                            systemImage: "person.2.wave.2"
-                        )
-                        .font(.caption)
+                        .menuStyle(.borderlessButton)
+                        .frame(width: isDiarizing ? 90 : (recording.diarizedText != nil ? 85 : 100))
+                        .disabled(isDiarizing || isRetranscribing || !appState.isModelReady || !appState.isIdle)
                     }
-                    .menuStyle(.borderlessButton)
-                    .frame(width: isDiarizing ? 90 : (recording.diarizedText != nil ? 85 : 100))
-                    .disabled(isDiarizing || isRetranscribing || !appState.isModelReady || !appState.isIdle)
                 }
 
                 // 复制
@@ -259,7 +271,11 @@ struct DetailView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.regular)
-                    .disabled(isRetranscribing || !appState.isIdle || !appState.isModelReady)
+                    .disabled(
+                        isRetranscribing
+                            || recording.transcriptionStatus == "processing"
+                            || !appState.canTranscribeFile
+                    )
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 200)
@@ -314,7 +330,7 @@ struct DetailView: View {
                 Text("当前转录没有结构化说话人时间线")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                Text("使用 MOSS-TD 重新转录后可在这里查看")
+                Text("使用支持结构化分段的引擎重新转录后可在这里查看")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -510,10 +526,10 @@ struct DetailView: View {
         Task {
             defer { isRetranscribing = false }
             do {
-                let result = try await appState.transcribeFile(at: audioURL)
-                try appState.persistenceCoordinator.apply(result, to: recordingId)
+                try await appState.retranscribe(recordingId: recordingId, audioURL: audioURL)
+            } catch ASRCoordinationError.superseded {
+                // 新请求已接管该录音，不显示旧任务错误。
             } catch {
-                appState.persistenceCoordinator.markFailed(error, recordingId: recordingId)
                 transcriptionError = error.localizedDescription
             }
         }

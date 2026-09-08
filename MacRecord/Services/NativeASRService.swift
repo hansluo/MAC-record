@@ -394,6 +394,7 @@ actor NativeASRService {
         var totalRecTime: Double = 0
 
         for (idx, segSamples) in speechSegments.enumerated() {
+            try Task.checkCancellation()
             let segDur = Double(segSamples.count) / Double(raw.sampleRate)
             let enhStart = CFAbsoluteTimeGetCurrent()
             let enhanced = AudioEnhancer.enhance(

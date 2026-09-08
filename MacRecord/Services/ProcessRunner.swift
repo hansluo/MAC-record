@@ -24,6 +24,14 @@ private final class LockedFlag: @unchecked Sendable {
     }
 }
 
+enum ProcessRunnerError: LocalizedError {
+    case timedOut
+
+    var errorDescription: String? {
+        "进程执行超时"
+    }
+}
+
 enum ProcessRunner {
     static func run(
         executable: URL,
@@ -69,17 +77,24 @@ enum ProcessRunner {
             }
         }
 
-        process.waitUntilExit()
-        timeoutTask?.cancel()
-        let stdout = await stdoutTask.value
-        let stderr = await stderrTask.value
-        if timedOut.value { throw MOSSRuntimeError.timedOut }
-        if Task.isCancelled { throw CancellationError() }
-        return ProcessExecutionResult(
-            status: process.terminationStatus,
-            standardOutput: Data(stdout.suffix(outputLimit)),
-            standardError: Data(stderr.suffix(outputLimit))
-        )
+        return try await withTaskCancellationHandler {
+            let status = await Task.detached {
+                process.waitUntilExit()
+                return process.terminationStatus
+            }.value
+            timeoutTask?.cancel()
+            let stdout = await stdoutTask.value
+            let stderr = await stderrTask.value
+            if timedOut.value { throw ProcessRunnerError.timedOut }
+            if Task.isCancelled { throw CancellationError() }
+            return ProcessExecutionResult(
+                status: status,
+                standardOutput: Data(stdout.suffix(outputLimit)),
+                standardError: Data(stderr.suffix(outputLimit))
+            )
+        } onCancel: {
+            Task.detached { terminate(process) }
+        }
     }
 
     static func terminate(_ process: Process, gracePeriod: TimeInterval = 2) {

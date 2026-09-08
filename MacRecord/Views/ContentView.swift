@@ -223,7 +223,7 @@ struct ContentView: View {
                             .lineLimit(2)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else if !appState.selectedASRModel.capabilities.supportsRealtime {
-                        Label("录音结束后使用 MOSS-TD 生成说话人时间线", systemImage: "person.wave.2")
+                        Label("录音结束后使用当前引擎转录", systemImage: "waveform.badge.magnifyingglass")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -283,8 +283,8 @@ struct ContentView: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .disabled(!appState.isModelReady)
-                .opacity(appState.isModelReady ? 1 : 0.4)
+                .disabled(!appState.canStartRecording)
+                .opacity(appState.canStartRecording ? 1 : 0.4)
             }
         }
         .padding(.vertical, 12)
@@ -498,9 +498,7 @@ struct ContentView: View {
             )
             importedRecordingId = recordingId
             appState.selectedRecordingId = recordingId
-            importProgress = appState.selectedASRModel.family == .mossTranscribeDiarize
-                ? "正在使用 MOSS-TD 生成说话人时间线…"
-                : "正在转录…"
+            importProgress = "正在使用 \(appState.selectedASRModel.displayName) 转录…"
             let managedURL = try appState.persistenceCoordinator.audioURL(for: recordingId)
             let result = try await appState.transcribeFile(at: managedURL)
             try appState.persistenceCoordinator.apply(result, to: recordingId)

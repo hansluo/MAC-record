@@ -15,13 +15,6 @@ struct ASRCapabilities: Equatable {
         supportsHotwords: false
     )
 
-    static let moss = ASRCapabilities(
-        supportsRealtime: false,
-        supportsFileTranscription: true,
-        supportsSpeakerLabels: true,
-        supportsTimestamps: true,
-        supportsHotwords: true
-    )
 }
 
 struct TranscriptionSegment: Codable, Equatable, Identifiable {
@@ -71,34 +64,4 @@ protocol FileASRBackend: Sendable {
         hotwords: [String]
     ) async throws -> UnifiedTranscriptionResult
     func cancel() async
-}
-
-struct MOSSTranscriptParser {
-    static func parse(_ text: String) -> [TranscriptionSegment] {
-        let pattern = #"\[([0-9]+(?:\.[0-9]*)?|\.[0-9]+)\]\s*\[(S[0-9]+)\](.*?)\[([0-9]+(?:\.[0-9]*)?|\.[0-9]+)\]"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else {
-            return []
-        }
-
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        return regex.matches(in: text, range: range).compactMap { match in
-            guard match.numberOfRanges == 5,
-                  let startRange = Range(match.range(at: 1), in: text),
-                  let speakerRange = Range(match.range(at: 2), in: text),
-                  let contentRange = Range(match.range(at: 3), in: text),
-                  let endRange = Range(match.range(at: 4), in: text),
-                  let start = Double(text[startRange]),
-                  let end = Double(text[endRange]),
-                  end >= start else { return nil }
-
-            let content = text[contentRange].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !content.isEmpty else { return nil }
-            return TranscriptionSegment(
-                start: start,
-                end: end,
-                speaker: String(text[speakerRange]),
-                text: content
-            )
-        }
-    }
 }

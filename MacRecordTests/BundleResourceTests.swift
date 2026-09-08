@@ -12,6 +12,5 @@ final class BundleResourceTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: resources.appendingPathComponent("silero_vad.onnx").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: resources.appendingPathComponent("model.onnx").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: resources.appendingPathComponent("3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx").path))
-        XCTAssertNotNil(MOSSRuntimeEnvironment.sidecarScriptURL)
     }
 }
