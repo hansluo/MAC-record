@@ -365,7 +365,7 @@ struct ContentView: View {
             } label: {
                 Label("导入文件", systemImage: "square.and.arrow.down")
             }
-            .disabled(!appState.isIdle)
+            .disabled(!appState.canTranscribeFile)
             .help("导入 MP3/M4A/WAV 等音频文件")
 
             Button {

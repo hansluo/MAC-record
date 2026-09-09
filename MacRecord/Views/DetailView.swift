@@ -234,11 +234,32 @@ struct DetailView: View {
     private var asrPanel: some View {
         let text = recording.plainText ?? ""
         if recording.transcriptionStatus == "processing" {
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("正在使用 \(recordingEngineName) 转录…")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                let progress = appState.transcriptionProgress(for: recording.id)
+                HStack(spacing: 8) {
+                    if let progress, progress.fraction > 0 {
+                        ProgressView(value: progress.fraction)
+                            .frame(width: 120)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                    Text(progress?.message ?? "正在使用 \(recordingEngineName) 转录…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if isRetranscribing {
+                        Button("取消") {
+                            appState.cancelTranscription(recordingId: recording.id)
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                    }
+                }
+                if let progress, progress.fraction > 0 {
+                    Text("\(Int(progress.fraction * 100))%")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
             }
             .padding(.bottom, 12)
         } else if recording.transcriptionStatus == "failed" {

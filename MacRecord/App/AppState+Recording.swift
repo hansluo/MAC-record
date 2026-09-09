@@ -175,11 +175,27 @@ extension AppState {
                     }
                     do {
                         let audioURL = try self.persistenceCoordinator.audioURL(for: recordingId)
-                        let result = try await self.transcriptionQueue.enqueue {
-                            try await self.transcribeFile(at: audioURL)
+                        let progressHandler: @Sendable (TranscriptionProgress) -> Void = { [weak self] progress in
+                            Task { @MainActor [weak self] in
+                                self?.updateTranscriptionProgress(
+                                    progress,
+                                    recordingId: recordingId,
+                                    generation: generation
+                                )
+                            }
                         }
+                        let result = try await self.transcriptionQueue.enqueue {
+                            try await self.transcribeFile(
+                                at: audioURL,
+                                onProgress: progressHandler
+                            )
+                        }
+                        try Task.checkCancellation()
                         guard self.isCurrentTranscription(generation, for: recordingId) else { return }
                         try self.persistenceCoordinator.apply(result, to: recordingId)
+                    } catch is CancellationError {
+                        guard self.isCurrentTranscription(generation, for: recordingId) else { return }
+                        self.persistenceCoordinator.markCancelled(recordingId: recordingId)
                     } catch {
                         guard self.isCurrentTranscription(generation, for: recordingId) else { return }
                         self.persistenceCoordinator.markFailed(error, recordingId: recordingId)

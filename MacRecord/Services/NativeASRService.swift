@@ -316,111 +316,200 @@ actor NativeASRService {
 
     // MARK: - 文件转录
 
-    func transcribeFile(audioPath: String, language: String = "auto") throws -> TranscribeResult {
+    func transcribeFile(
+        audioPath: String,
+        language: String = "auto",
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
+    ) throws -> TranscribeResult {
         guard let recognizer = recognizer, let vadPath = vadModelPath else {
             throw NativeASRError.notReady
         }
 
         let totalStart = CFAbsoluteTimeGetCurrent()
+        onProgress?(.init(
+            phase: .reading,
+            fraction: 0.01,
+            message: "正在读取并转换音频…",
+            completedSegments: 0
+        ))
+        try Task.checkCancellation()
 
         let fileURL = URL(fileURLWithPath: audioPath)
-        guard let raw = AudioEnhancer.readAndResample(url: fileURL) else {
-            print("[NativeASR] readAndResample 失败，fallback 到原始路径")
-            let result = recognizer.recognizeFile(path: audioPath)
-            return TranscribeResult(
-                plainText: result.text, detectedLanguage: result.lang,
-                emotion: result.emotion, duration: nil
-            )
-        }
-
-        let audioDuration = Double(raw.samples.count) / Double(raw.sampleRate)
-
-        let vadBufferSize = max(120.0, Float(audioDuration) + 60.0)
+        let sampleRate: Int32 = 16_000
+        var audioDuration: Double = 0
+        var totalSamples = 0
         guard let vad = SherpaOnnxVADWrapper(
-            modelPath: vadPath, bufferSizeInSeconds: vadBufferSize
+            modelPath: vadPath,
+            maxSpeechDuration: 10.0,
+            bufferSizeInSeconds: 120.0
         ) else {
-            print("[NativeASR] 文件转录 VAD 创建失败，fallback 到整段识别")
-            var samples = raw.samples
-            samples = AudioEnhancer.enhance(samples: samples, sampleRate: Float(raw.sampleRate))
-            let result = recognizer.recognize(samples: samples, sampleRate: raw.sampleRate)
-            return TranscribeResult(
-                plainText: result.text, detectedLanguage: result.lang,
-                emotion: result.emotion, duration: audioDuration
-            )
+            throw NativeASRError.transcriptionFailed("无法创建语音活动检测器")
         }
 
-        let vadStart = CFAbsoluteTimeGetCurrent()
-        let windowSize = Int(vad.windowSize)
-        var offset = 0
-
-        raw.samples.withUnsafeBufferPointer { ptr in
-            while offset + windowSize <= raw.samples.count {
-                vad.acceptWaveform(samples: ptr.baseAddress! + offset, count: Int32(windowSize))
-                offset += windowSize
-            }
-        }
-        if offset < raw.samples.count {
-            var tail = Array(raw.samples[offset...])
-            tail.append(contentsOf: [Float](repeating: 0, count: windowSize - tail.count))
-            tail.withUnsafeBufferPointer { ptr in
-                vad.acceptWaveform(samples: ptr.baseAddress!, count: Int32(windowSize))
-            }
-        }
-        vad.flush()
-
-        var speechSegments: [[Float]] = []
-        while vad.hasSegment {
-            if let (segSamples, _) = vad.popFrontSegment() {
-                speechSegments.append(segSamples)
-            }
-        }
-        let vadTime = CFAbsoluteTimeGetCurrent() - vadStart
-
-        if speechSegments.isEmpty {
-            print("[NativeASR] 文件转录: VAD 未检测到语音段，整段识别")
-            var samples = raw.samples
-            samples = AudioEnhancer.enhance(samples: samples, sampleRate: Float(raw.sampleRate))
-            let result = recognizer.recognize(samples: samples, sampleRate: raw.sampleRate)
-            return TranscribeResult(
-                plainText: result.text, detectedLanguage: result.lang,
-                emotion: result.emotion, duration: audioDuration
-            )
+        func timeText(_ seconds: Double) -> String {
+            let value = max(0, Int(seconds.rounded(.down)))
+            return String(format: "%02d:%02d:%02d", value / 3600, (value % 3600) / 60, value % 60)
         }
 
         var confirmedTexts: [String] = []
         var firstLang: String?
         var firstEmotion: String?
+        var completedSegments = 0
+        var recognizedSamples = 0
         var totalEnhTime: Double = 0
         var totalRecTime: Double = 0
+        let maximumSegmentSamples = Int(sampleRate) * 10
 
-        for (idx, segSamples) in speechSegments.enumerated() {
-            try Task.checkCancellation()
-            let segDur = Double(segSamples.count) / Double(raw.sampleRate)
-            let enhStart = CFAbsoluteTimeGetCurrent()
-            let enhanced = AudioEnhancer.enhance(
-                samples: segSamples, sampleRate: Float(raw.sampleRate)
+        func report(processedSamples: Int, message: String? = nil) {
+            let processedSeconds = min(
+                Double(processedSamples) / Double(sampleRate),
+                audioDuration
             )
-            totalEnhTime += CFAbsoluteTimeGetCurrent() - enhStart
-
-            let recStart = CFAbsoluteTimeGetCurrent()
-            let result = recognizer.recognize(samples: enhanced, sampleRate: raw.sampleRate)
-            totalRecTime += CFAbsoluteTimeGetCurrent() - recStart
-
-            let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !text.isEmpty { confirmedTexts.append(text) }
-            if idx == 0 {
-                firstLang = result.lang
-                firstEmotion = result.emotion
-            }
-            print("[NativeASR] 段\(idx+1)/\(speechSegments.count): \(String(format: "%.1f", segDur))s → \"\(text.prefix(30))\"")
+            let fraction = min(max(0.03 + 0.94 * processedSeconds / max(audioDuration, 0.001), 0.03), 0.97)
+            onProgress?(.init(
+                phase: .recognizing,
+                fraction: fraction,
+                message: message ?? "已处理 \(timeText(processedSeconds)) / \(timeText(audioDuration)) · \(completedSegments) 段",
+                completedSegments: completedSegments
+            ))
         }
 
+        func recognizeSegment(_ samples: [Float], startIndex: Int) throws {
+            guard !samples.isEmpty else { return }
+            var chunkOffset = 0
+            while chunkOffset < samples.count {
+                try Task.checkCancellation()
+                let end = min(chunkOffset + maximumSegmentSamples, samples.count)
+                let chunk = Array(samples[chunkOffset..<end])
+                let segmentNumber = completedSegments + 1
+                let segmentEnd = min(startIndex + end, totalSamples)
+                report(
+                    processedSamples: max(startIndex + chunkOffset, 0),
+                    message: "正在识别第 \(segmentNumber) 段 · \(timeText(Double(segmentEnd) / Double(sampleRate))) / \(timeText(audioDuration))"
+                )
+
+                let enhStart = CFAbsoluteTimeGetCurrent()
+                let enhanced = AudioEnhancer.enhance(
+                    samples: chunk,
+                    sampleRate: Float(sampleRate)
+                )
+                totalEnhTime += CFAbsoluteTimeGetCurrent() - enhStart
+                try Task.checkCancellation()
+
+                let recStart = CFAbsoluteTimeGetCurrent()
+                let result = recognizer.recognize(samples: enhanced, sampleRate: sampleRate)
+                totalRecTime += CFAbsoluteTimeGetCurrent() - recStart
+                try Task.checkCancellation()
+
+                let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty { confirmedTexts.append(text) }
+                if completedSegments == 0 {
+                    firstLang = result.lang
+                    firstEmotion = result.emotion
+                }
+                completedSegments += 1
+                recognizedSamples += chunk.count
+                report(processedSamples: segmentEnd)
+                print("[NativeASR] 段\(completedSegments): \(String(format: "%.1f", Double(chunk.count) / Double(sampleRate)))s → \"\(text.prefix(30))\"")
+                chunkOffset = end
+            }
+        }
+
+        func drainSegments() throws {
+            while vad.hasSegment {
+                guard let (segmentSamples, startIndex) = vad.popFrontSegment() else {
+                    throw NativeASRError.transcriptionFailed("VAD 返回了无效语音段")
+                }
+                try recognizeSegment(segmentSamples, startIndex: Int(startIndex))
+            }
+        }
+
+        let vadStart = CFAbsoluteTimeGetCurrent()
+        let windowSize = Int(vad.windowSize)
+        var pendingSamples: [Float] = []
+        var acceptedSamples = 0
+        var nextHeartbeat = Int(sampleRate) * 5
+
+        do {
+            try AudioFileChunkReader.read(
+                url: fileURL,
+                targetSampleRate: sampleRate,
+                chunkDuration: 10
+            ) { samples, _, totalDuration in
+                try Task.checkCancellation()
+                audioDuration = totalDuration
+                totalSamples = max(
+                    totalSamples,
+                    Int((totalDuration * Double(sampleRate)).rounded())
+                )
+                pendingSamples.append(contentsOf: samples)
+                var consumed = 0
+                try pendingSamples.withUnsafeBufferPointer { pointer in
+                    guard let baseAddress = pointer.baseAddress else { return }
+                    while consumed + windowSize <= pointer.count {
+                        if acceptedSamples >= nextHeartbeat {
+                            try Task.checkCancellation()
+                            report(
+                                processedSamples: acceptedSamples,
+                                message: "正在检测语音 \(timeText(Double(acceptedSamples) / Double(sampleRate))) / \(timeText(audioDuration))"
+                            )
+                            nextHeartbeat += Int(sampleRate) * 5
+                        }
+                        vad.acceptWaveform(
+                            samples: baseAddress + consumed,
+                            count: Int32(windowSize)
+                        )
+                        consumed += windowSize
+                        acceptedSamples += windowSize
+                        try drainSegments()
+                    }
+                }
+                if consumed > 0 {
+                    pendingSamples = Array(pendingSamples.dropFirst(consumed))
+                }
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw NativeASRError.transcriptionFailed(error.localizedDescription)
+        }
+
+        try Task.checkCancellation()
+        totalSamples = max(totalSamples, acceptedSamples + pendingSamples.count)
+        if !pendingSamples.isEmpty {
+            pendingSamples.append(contentsOf: [Float](
+                repeating: 0,
+                count: windowSize - pendingSamples.count
+            ))
+            pendingSamples.withUnsafeBufferPointer { pointer in
+                if let baseAddress = pointer.baseAddress {
+                    vad.acceptWaveform(samples: baseAddress, count: Int32(windowSize))
+                }
+            }
+            acceptedSamples += windowSize
+        }
+        pendingSamples.removeAll(keepingCapacity: false)
+        vad.flush()
+        try drainSegments()
+        try Task.checkCancellation()
+
+        guard completedSegments > 0 else {
+            throw NativeASRError.transcriptionFailed("未检测到可转录的语音")
+        }
+
+        let vadTime = CFAbsoluteTimeGetCurrent() - vadStart
         let totalTime = CFAbsoluteTimeGetCurrent() - totalStart
-        let speechRatio = speechSegments.reduce(0) { $0 + $1.count } * 100 / raw.samples.count
-        print("[NativeASR] 文件转录完成: \(speechSegments.count)段, 语音占比\(speechRatio)%, VAD=\(String(format: "%.2f", vadTime))s 增强=\(String(format: "%.2f", totalEnhTime))s 识别=\(String(format: "%.2f", totalRecTime))s 总计=\(String(format: "%.2f", totalTime))s")
+        let speechRatio = recognizedSamples * 100 / max(totalSamples, 1)
+        onProgress?(.init(
+            phase: .saving,
+            fraction: 0.99,
+            message: "识别完成，正在保存 \(completedSegments) 段结果…",
+            completedSegments: completedSegments
+        ))
+        print("[NativeASR] 文件转录完成: \(completedSegments)段, 语音占比\(speechRatio)%, VAD+识别=\(String(format: "%.2f", vadTime))s 增强=\(String(format: "%.2f", totalEnhTime))s 识别=\(String(format: "%.2f", totalRecTime))s 总计=\(String(format: "%.2f", totalTime))s")
 
         return TranscribeResult(
-            plainText: confirmedTexts.joined(separator: ""),
+            plainText: confirmedTexts.joined(separator: "\n"),
             detectedLanguage: firstLang,
             emotion: firstEmotion,
             duration: audioDuration
@@ -580,6 +669,7 @@ actor NativeASRService {
 enum NativeASRError: LocalizedError {
     case modelNotFound(String)
     case initFailed(String)
+    case transcriptionFailed(String)
     case notReady
     case sessionNotFound(String)
 
@@ -587,6 +677,7 @@ enum NativeASRError: LocalizedError {
         switch self {
         case .modelNotFound(let msg): return "模型未找到: \(msg)"
         case .initFailed(let msg): return "初始化失败: \(msg)"
+        case .transcriptionFailed(let msg): return "转录失败: \(msg)"
         case .notReady: return "ASR 引擎未就绪"
         case .sessionNotFound(let id): return "会话不存在: \(id)"
         }

@@ -8,9 +8,14 @@ struct NativeASRBackend: FileASRBackend {
 
     func transcribeFile(
         at url: URL,
-        hotwords: [String] = []
+        hotwords: [String] = [],
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
     ) async throws -> UnifiedTranscriptionResult {
-        let result = try await service.transcribeFile(audioPath: url.path, language: "auto")
+        let result = try await service.transcribeFile(
+            audioPath: url.path,
+            language: "auto",
+            onProgress: onProgress
+        )
         return UnifiedTranscriptionResult(
             text: result.plainText,
             language: result.detectedLanguage,

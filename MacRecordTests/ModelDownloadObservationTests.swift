@@ -24,6 +24,7 @@ final class ModelDownloadObservationTests: XCTestCase {
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [configuration])
         let appState = AppState(modelContainer: container)
+        appState.isModelReady = true
         let recordingId = UUID()
         let generation = appState.beginTranscription(for: recordingId)
         let task = Task<Void, Never> { try? await Task.sleep(for: .seconds(10)) }
@@ -32,8 +33,21 @@ final class ModelDownloadObservationTests: XCTestCase {
         XCTAssertTrue(appState.isTranscribing(recordingId: recordingId))
         XCTAssertTrue(appState.hasActiveTranscriptions)
         XCTAssertFalse(appState.canStartRecording)
+        XCTAssertTrue(appState.canTranscribeFile)
 
         appState.cancelTranscription(recordingId: recordingId)
+        XCTAssertTrue(appState.isTranscribing(recordingId: recordingId))
+        XCTAssertTrue(appState.hasActiveTranscriptions)
+        XCTAssertEqual(
+            appState.transcriptionProgress(for: recordingId)?.phase,
+            .cancelling
+        )
+
+        appState.finishTranscription(generation, for: recordingId)
+        appState.unregisterTranscriptionTask(
+            generation: generation,
+            recordingId: recordingId
+        )
         XCTAssertFalse(appState.isTranscribing(recordingId: recordingId))
         XCTAssertFalse(appState.hasActiveTranscriptions)
         XCTAssertNil(appState.transcriptionStatus)

@@ -52,6 +52,7 @@ class AppState: ObservableObject {
     @Published var isModelReady: Bool = false
     @Published var transcriptionStatus: String?
     @Published private(set) var activeTranscriptionIds: Set<UUID> = []
+    @Published private(set) var transcriptionProgressByRecordingId: [UUID: TranscriptionProgress] = [:]
 
     // MARK: - ASR 配置
     @Published var asrConfigStore = ASRConfigStore()
@@ -101,6 +102,20 @@ class AppState: ObservableObject {
         activeTranscriptionIds.contains(recordingId)
     }
 
+    func transcriptionProgress(for recordingId: UUID) -> TranscriptionProgress? {
+        transcriptionProgressByRecordingId[recordingId]
+    }
+
+    func updateTranscriptionProgress(
+        _ progress: TranscriptionProgress,
+        recordingId: UUID,
+        generation: UUID
+    ) {
+        guard isCurrentTranscription(generation, for: recordingId) else { return }
+        transcriptionProgressByRecordingId[recordingId] = progress
+        transcriptionStatus = progress.message
+    }
+
     /// 文件型 ASR 不要求实时引擎常驻；只要模型已安装即可录音后转录。
     var canStartRecording: Bool {
         guard isIdle, !hasActiveTranscriptions else { return false }
@@ -114,7 +129,6 @@ class AppState: ObservableObject {
 
     var canTranscribeFile: Bool {
         guard isIdle,
-              !hasActiveTranscriptions,
               selectedASRModel.capabilities.supportsFileTranscription,
               ModelRegistry.isModelDownloaded(selectedASRModel.id) else { return false }
         return selectedASRModel.capabilities.supportsRealtime ? isModelReady : true
@@ -156,10 +170,12 @@ class AppState: ObservableObject {
                 Task { await self.startASREngine() }
             }
             .store(in: &cancellables)
-        Task {
-            await startASREngine()
-            voiceInputService.setup(appState: self)
-            sleepWakeManager.setup(appState: self)
+        if ProcessInfo.processInfo.environment["MACRECORD_TESTING"] != "1" {
+            Task {
+                await startASREngine()
+                voiceInputService.setup(appState: self)
+                sleepWakeManager.setup(appState: self)
+            }
         }
     }
 
@@ -280,7 +296,14 @@ class AppState: ObservableObject {
         transcriptionTasks[recordingId] = task
         transcriptionTaskGenerations[recordingId] = generation
         activeTranscriptionIds.insert(recordingId)
-        transcriptionStatus = "转录队列处理中"
+        let progress = TranscriptionProgress(
+            phase: .queued,
+            fraction: 0,
+            message: "已加入转录队列",
+            completedSegments: 0
+        )
+        transcriptionProgressByRecordingId[recordingId] = progress
+        transcriptionStatus = progress.message
     }
 
     func unregisterTranscriptionTask(generation: UUID, recordingId: UUID) {
@@ -288,7 +311,10 @@ class AppState: ObservableObject {
         transcriptionTasks.removeValue(forKey: recordingId)
         transcriptionTaskGenerations.removeValue(forKey: recordingId)
         activeTranscriptionIds.remove(recordingId)
-        transcriptionStatus = transcriptionTasks.isEmpty ? nil : "转录队列处理中"
+        transcriptionProgressByRecordingId.removeValue(forKey: recordingId)
+        transcriptionStatus = transcriptionTasks.isEmpty
+            ? nil
+            : transcriptionProgressByRecordingId.values.first?.message ?? "转录队列处理中"
     }
 
     func startRetranscription(recordingId: UUID, audioURL: URL) {
@@ -307,10 +333,33 @@ class AppState: ObservableObject {
                 )
             }
             do {
-                let result = try await self.transcriptionQueue.enqueue {
-                    try await self.transcribeFile(at: audioURL)
+                let progressHandler: @Sendable (TranscriptionProgress) -> Void = { [weak self] progress in
+                    Task { @MainActor [weak self] in
+                        self?.updateTranscriptionProgress(
+                            progress,
+                            recordingId: recordingId,
+                            generation: generation
+                        )
+                    }
                 }
+                let result = try await self.transcriptionQueue.enqueue {
+                    try await self.transcribeFile(
+                        at: audioURL,
+                        onProgress: progressHandler
+                    )
+                }
+                try Task.checkCancellation()
                 guard self.isCurrentTranscription(generation, for: recordingId) else { return }
+                self.updateTranscriptionProgress(
+                    .init(
+                        phase: .saving,
+                        fraction: 0.99,
+                        message: "正在保存转录结果…",
+                        completedSegments: self.transcriptionProgressByRecordingId[recordingId]?.completedSegments ?? 0
+                    ),
+                    recordingId: recordingId,
+                    generation: generation
+                )
                 try self.persistenceCoordinator.apply(result, to: recordingId)
             } catch is CancellationError {
                 guard self.isCurrentTranscription(generation, for: recordingId) else { return }
@@ -326,15 +375,25 @@ class AppState: ObservableObject {
         registerTranscriptionTask(task, generation: generation, recordingId: recordingId)
     }
 
-    func transcribeFile(at url: URL, hotwords: [String] = []) async throws -> UnifiedTranscriptionResult {
+    func transcribeFile(
+        at url: URL,
+        hotwords: [String] = [],
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
+    ) async throws -> UnifiedTranscriptionResult {
         guard isIdle else { throw ASRCoordinationError.busy }
         let modelId = asrConfigStore.selectedModelId
         switch ModelRegistry.model(for: modelId).family {
         case .senseVoice, .qwen3ASR:
             guard let nativeASRService else { throw NativeASRError.notReady }
             return try await NativeASRBackend(modelId: modelId, service: nativeASRService)
-                .transcribeFile(at: url, hotwords: hotwords)
+                .transcribeFile(at: url, hotwords: hotwords, onProgress: onProgress)
         case .appleSpeech:
+            onProgress?(.init(
+                phase: .recognizing,
+                fraction: 0.1,
+                message: "正在使用系统语音识别…",
+                completedSegments: 0
+            ))
             let result = try await AppleSpeechService().transcribeFile(url: url)
             return UnifiedTranscriptionResult(
                 text: result.plainText,
@@ -350,12 +409,20 @@ class AppState: ObservableObject {
     }
 
     func cancelTranscription(recordingId: UUID) {
-        transcriptionGenerations.removeValue(forKey: recordingId)
-        persistenceCoordinator.markCancelled(recordingId: recordingId)
-        transcriptionTasks.removeValue(forKey: recordingId)?.cancel()
-        transcriptionTaskGenerations.removeValue(forKey: recordingId)
-        activeTranscriptionIds.remove(recordingId)
-        transcriptionStatus = transcriptionTasks.isEmpty ? nil : "转录队列处理中"
+        guard let task = transcriptionTasks[recordingId],
+              let generation = transcriptionTaskGenerations[recordingId] else { return }
+        let progress = TranscriptionProgress(
+            phase: .cancelling,
+            fraction: transcriptionProgressByRecordingId[recordingId]?.fraction ?? 0,
+            message: "正在取消，等待当前片段结束…",
+            completedSegments: transcriptionProgressByRecordingId[recordingId]?.completedSegments ?? 0
+        )
+        updateTranscriptionProgress(
+            progress,
+            recordingId: recordingId,
+            generation: generation
+        )
+        task.cancel()
     }
 
     func cancelTranscription() async {

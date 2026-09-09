@@ -25,6 +25,21 @@ struct TranscriptionSegment: Codable, Equatable, Identifiable {
     let text: String
 }
 
+struct TranscriptionProgress: Sendable, Equatable {
+    enum Phase: String, Sendable {
+        case queued
+        case reading
+        case recognizing
+        case saving
+        case cancelling
+    }
+
+    let phase: Phase
+    let fraction: Double
+    let message: String
+    let completedSegments: Int
+}
+
 struct UnifiedTranscriptionResult: Codable, Equatable {
     let text: String
     let language: String?
@@ -61,7 +76,8 @@ protocol FileASRBackend: Sendable {
     var capabilities: ASRCapabilities { get }
     func transcribeFile(
         at url: URL,
-        hotwords: [String]
+        hotwords: [String],
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)?
     ) async throws -> UnifiedTranscriptionResult
     func cancel() async
 }
